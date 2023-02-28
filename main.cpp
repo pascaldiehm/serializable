@@ -16,6 +16,7 @@ void assert(bool value, const char* message) {
 std::string buildSerial(const std::vector<const char*>& fields) {
     std::string result;
     for(const auto& field : fields) result = result.append(field).append("\n");
+    if(!result.empty()) result.pop_back();
     return result;
 }
 
@@ -58,6 +59,12 @@ void testSerialization() {
     assert(b.serialize() == buildSerial({"LONG time = 1677572053", "INT Primes = 2357", "BOOL Has Token = true",
                                          "UCHAR Token = 42"}),
            "Serialize multiple fields");
+
+    struct : serializable::Serializable {
+        std::string str = "Hello,\nworld!";
+        void exposed() override { expose("str", str); }
+    } c;
+    assert(c.serialize() == buildSerial({"STRING str = \"Hello,", "world!\""}), "Serialize multi line strings");
 }
 
 void testDeserialization() {
@@ -65,7 +72,8 @@ void testDeserialization() {
         int i = 42;
         void exposed() override { expose("i", i); }
     } a, copy_a;
-    copy_a.deserialize(buildSerial({"INT i 0 42"}));
+    a.i = 13;
+    copy_a.deserialize(buildSerial({"INT i = 13"}));
     assert(a.serialize() == copy_a.serialize(), "Deserialize single field");
 
     struct : serializable::Serializable {
@@ -73,15 +81,17 @@ void testDeserialization() {
         int primes          = 2357;
         bool hasToken       = true;
         unsigned char token = 42;
+        std::string my_str  = "Hello,\nworld!";
         void exposed() override {
             expose("time", time);
             expose("Primes", primes);
             expose("Has Token", hasToken);
             expose("Token", token);
+            expose("String", my_str);
         }
     } b, copy_b;
-    std::vector<const char*> serial{"LONG time = 1677572053", "INT Primes = 2357", "BOOL Has Token = true",
-                                    "UCHAR Token = 42"};
+    std::vector<const char*> serial{"LONG time = 1677572053", "INT Primes = 2357",        "BOOL Has Token = true",
+                                    "UCHAR Token = 42",       "STRING String = \"Hello,", "world!\""};
 
     copy_b.deserialize(buildSerial(serial));
     assert(b.serialize() == copy_b.serialize(), "Deserialize multiple fields");
@@ -142,6 +152,8 @@ void testErrorDetection() {
     assert(!b.check(buildSerial(
                {"BOOL b = true", "INT i = -1", "UINT u = 5", "DOUBLE d = 1.123", R"(STRING str = my-str)"})),
            "Typecheck invalid string (2)");
+    assert(!b.check(buildSerial({"BOOL b = true", "INT i = -1", "UINT u = 5", "", R"(STRING str = my-str)"})),
+           "Typecheck missing value");
 }
 
 void testChains() {
@@ -210,11 +222,15 @@ void testNesting() {
                 expose("Octal", oct);
             }
         } child1, child2, child3, child4;
+        struct : serializable::Serializable {
+            void exposed() override {}
+        } empty;
         void exposed() override {
             expose("Child 1", child1);
             expose("Child 2", child2);
             expose("Child 3", child3);
             expose("Child 4", child4);
+            expose("Empty Test", empty);
         }
     } master, master_copy;
 
