@@ -279,8 +279,9 @@ inline std::string getType(const std::string& str) {
 }
 
 inline bool isName(const std::string& str) {
-    return !str.empty() &&
-           !std::any_of(str.begin(), str.end(), [](char c) { return c == '\n' || c == '=' || c == '(' || c == ')'; });
+    return !str.empty() && !std::any_of(str.begin(), str.end(), [](char c) {
+        return c == '\n' || c == '=' || c == '(' || c == ')' || c == '{' || c == '}';
+    });
 }
 
 inline bool isBool(const std::string& str) { return str == "true" || str == "false"; }

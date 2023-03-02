@@ -92,7 +92,7 @@ For every variable you want to serialize, you have to call `void expose(const ch
 
 For `name` you can generally pass any string you want.
 It's a good idea to take the name of the variable, to avoid duplication and confusion.
-It's a bad idea to use strings containing `{`, `}`, `"` or an equals sign (`=`) surrounded by two spaces as this might confuse the parser.
+It's a bad idea to use strings containing `\n`, `=`, `(`, `)`, `{` and `}`, as this might confuse the parser.
 Every other name _should_ be fine though.
 
 For `value` you usually simply have to pass in the name of the variable - C++ will automatically pass it as a reference (as requested by the `expose` function).
@@ -187,7 +187,7 @@ pointer = 'PTR ', name, ' = ', unum, ' (', unum, ')';
 unum = digit, {digit};
 
 digit = <any digit>;
-char = <any character except '\n'>;
+char = <any character except '\n', '=', '(', ')', '{' and '}'>;
 strchar = <any character except '\n' and '"'>;
 ```
 
