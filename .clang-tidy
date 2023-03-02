@@ -3,6 +3,7 @@ Checks: '
     -altera-*,
     -fuchsia-*,
     -llvmlibc-*,
+    -abseil-*,
     -*-braces-around-statements,
     -*-magic-numbers,
     -bugprone-easily-swappable-parameters,

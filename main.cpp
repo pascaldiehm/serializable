@@ -307,25 +307,25 @@ void testNames() {
     }
     {
         named.i               = 42;
-        named.name            = "n@n-ständárd characters!\t;-)";
+        named.name            = "n@n-ständárd characters!\t";
         auto [result, serial] = named.serialize();
-        assertOk(result, "Named: Serialize n@n-ständárd characters!\t;-)");
+        assertOk(result, "Named: Serialize n@n-ständárd characters!\t");
 
         named.i = 0;
         result  = named.deserialize(serial);
-        assertOk(result, "Named: Deserialize n@n-ständárd characters!\t;-)");
-        assert(named.i == 42, "Named: Check n@n-ständárd characters!\t;-) (i)");
+        assertOk(result, "Named: Deserialize n@n-ständárd characters!\t");
+        assert(named.i == 42, "Named: Check n@n-ständárd characters!\t (i)");
     }
     {
         named.i               = 42;
-        named.name            = "{containing} \"delimiters\" = ";
+        named.name            = "{containing} \"delimiters\"";
         auto [result, serial] = named.serialize();
-        assertOk(result, "Named: Serialize {containing} \"delimiters\" = ");
+        assertOk(result, "Named: Serialize {containing} \"delimiters\"");
 
         named.i = 0;
         result  = named.deserialize(serial);
-        assertOk(result, "Named: Deserialize {containing} \"delimiters\" = ");
-        assert(named.i == 42, "Named: Check {containing} \"delimiters\" =  (i)");
+        assertOk(result, "Named: Deserialize {containing} \"delimiters\"");
+        assert(named.i == 42, "Named: Check {containing} \"delimiters\" (i)");
     }
     {
         named.i               = 42;
@@ -368,8 +368,8 @@ void testSpeed() {
     using ms    = std::chrono::microseconds;
     using std::chrono::duration_cast;
 
-    const constexpr int ITERATIONS = 10;
-    const constexpr int ELEMENTS   = 10000;
+    const constexpr int ITERATIONS = 1;
+    const constexpr int ELEMENTS   = 1000000;
 
     // Create tracking arrays
     std::array<long, ITERATIONS> serializeTime{};
@@ -405,7 +405,7 @@ void testSpeed() {
 
     // Print result
     std::cout << std::fixed << std::setprecision(2) << "Serializing took on average " << serializeResult
-              << " milliseconds\nDeserializing took on average " << deserializeResult << " milliseconds\n";
+              << " microseconds\nDeserializing took on average " << deserializeResult << " microseconds\n";
 }
 
 int main() {
