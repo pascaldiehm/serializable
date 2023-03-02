@@ -1,326 +1,420 @@
 #include "serializable.hpp"
+#include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdlib>
+#include <iomanip>
 #include <ios>
 #include <iostream>
-#include <sstream>
+#include <ratio>
 #include <string>
-#include <vector>
 
-void assert(bool value, const char* message) {
-    if(value) return;
+using Result = serializable::Serializable::Result;
+
+// NOLINTBEGIN(*non-private*)
+class Simple : public serializable::Serializable {
+  public:
+    int i = 42;
+    void exposed() override { expose("i", i); }
+    unsigned int classID() const override { return 42; }
+};
+
+class AllTypes : public serializable::Serializable {
+  public:
+    enum class Enum { ABC, DEF, XYZ };
+    bool b            = true;
+    short s           = -1;
+    unsigned short us = 2;
+    int i             = -3;
+    unsigned int ui   = 4;
+    long l            = -5;
+    unsigned long ul  = 6;
+    // Float types aren't easily verifiable, therefore left out for now
+    std::string str = "Hello, world!";
+    Enum myEnum     = Enum::DEF;
+    void exposed() override {
+        expose("b", b);
+        expose("s", s);
+        expose("us", us);
+        expose("i", i);
+        expose("ui", ui);
+        expose("l", l);
+        expose("ul", ul);
+        expose("str", str);
+        expose("My Enum", myEnum);
+    }
+};
+
+class Nested : public serializable::Serializable {
+  public:
+    Simple s1, s2;
+    serializable::Vector<serializable::Array<int, 3>> triples;
+    void exposed() override {
+        expose("S1", s1);
+        expose("S2", s2);
+        expose("Pythagorean Triples", triples);
+    }
+    static serializable::Array<int, 3> makeTriple(int i, int j, int k) {
+        serializable::Array<int, 3> arr;
+        arr[0] = i;
+        arr[1] = j;
+        arr[2] = k;
+        return arr;
+    }
+};
+
+class Pointing : public serializable::Serializable {
+  public:
+    Simple simple, other_simple, not_exposed, *current{};
+    Pointing* ptr{};
+    void exposed() override {
+        expose("Simple", simple);
+        expose("Other", other_simple);
+        expose("Current", current);
+        expose("Mad", ptr);
+    }
+    unsigned int classID() const override { return 123; }
+};
+
+class Named : public serializable::Serializable {
+  public:
+    const char* name{};
+    int i{};
+    void exposed() override { expose(name, i); }
+};
+// NOLINTEND(*non-private*)
+
+void assert(bool condition, const char* message) {
+    if(condition) return;
     std::cerr << "[Failed] " << message << "\n";
     std::exit(1); // NOLINT(concurrency-mt-unsafe)
 }
 
-std::string buildSerial(const std::vector<const char*>& fields) {
-    std::string result;
-    for(const auto& field : fields) result = result.append(field).append("\n");
-    if(!result.empty()) result.pop_back();
-    return result;
+void assertEqual(const std::string& s, const std::string& t, const char* message) {
+    if(s == t) return;
+    std::cout << s << "\n>DIFFERS<\n" << t << "\n";
+    assert(false, message);
 }
 
-void shuffle(std::vector<const char*>& vec) {
-    auto swap = [&](std::size_t i, std::size_t j) {
-        const auto* temp = vec.at(i);
-        vec.at(i)        = vec.at(j);
-        vec.at(j)        = temp;
-    };
+void assertOk(Result result, const char* message) {
+    switch(result) {
+    case serializable::Serializable::Result::OK: return;
+    case serializable::Serializable::Result::FILE: std::cerr << "I/O Error\n"; break;
+    case serializable::Serializable::Result::STRUCTURE: std::cerr << "Syntax Error\n"; break;
+    case serializable::Serializable::Result::TYPECHECK: std::cerr << "Type Error\n"; break;
+    case serializable::Serializable::Result::INTEGRITY: std::cerr << "Integrity Error\n"; break;
+    case serializable::Serializable::Result::POINTER: std::cerr << "Pointer Error\n"; break;
+    }
+    assert(false, message);
+}
 
-    auto random = [] { return static_cast<float>(rand()) / RAND_MAX; }; // NOLINT(cert-msc*-c*,concurrency-mt-unsafe)
+void testSerialize() {
+    {
+        Simple simple;
+        auto [result, serial] = simple.serialize();
+        assertOk(result, "Serialize: Simple");
+        assertEqual(serial, "OBJECT ROOT = 0 (42) {\n\tINT i = 42\n}", "Serialize: Simple");
+    }
 
-    while(random() < 0.95) {
-        int i = static_cast<int>(random() * static_cast<float>(vec.size()));
-        int j = static_cast<int>(random() * static_cast<float>(vec.size()));
-        swap(i, j);
+    {
+        AllTypes allTypes;
+        auto [result, serial] = allTypes.serialize();
+        assertOk(result, "Serialize: AllTypes");
+        assertEqual(
+            serial,
+            "OBJECT ROOT = 0 (0) {\n\tENUM My Enum = 1\n\tULONG ul = 6\n\tINT i = -3\n\tUINT ui = 4\n\tUSHORT us = "
+            "2\n\tLONG l = -5\n\tSHORT s = -1\n\tSTRING str = \"Hello, world!\"\n\tBOOL b = true\n}",
+            "Serialize: AllTypes");
+    }
+
+    {
+        serializable::Vector<int> vec;
+        vec.push_back(10);
+        vec.push_back(20);
+        vec.push_back(30);
+        auto [result, serial] = vec.serialize();
+        assertOk(result, "Serialize: Vector");
+        assertEqual(serial, "OBJECT ROOT = 0 (2) {\n\tINT 2 = 30\n\tINT 1 = 20\n\tINT 0 = 10\n\tULONG length = 3\n}",
+                    "Serialize: Vector");
     }
 }
 
-// NOLINTBEGIN(misc-non-private-member-variables-in-classes)
-void testSerialization() {
-    struct : serializable::Serializable {
-        int i = 42;
-        void exposed() override { expose("i", i); }
-    } a;
-    assert(a.serialize() == buildSerial({"INT i = 42"}), "Serialize single field");
+void testDeserialize() {
+    Result result{};
 
-    struct : serializable::Serializable {
-        long time           = 1677572053;
-        int primes          = 2357;
-        bool hasToken       = true;
-        unsigned char token = 42;
-        void exposed() override {
-            expose("time", time);
-            expose("Primes", primes);
-            expose("Has Token", hasToken);
-            expose("Token", token);
-        }
-    } b;
-    assert(b.serialize() == buildSerial({"LONG time = 1677572053", "INT Primes = 2357", "BOOL Has Token = true",
-                                         "UCHAR Token = 42"}),
-           "Serialize multiple fields");
+    Simple simple;
+    result = simple.deserialize("OBJECT ROOT = 0 (42) {\n\tINT i = -42\n}");
+    assertOk(result, "Deserialize: Simple");
+    assert(simple.i == -42, "Deserialize: Simple (i)");
 
-    struct : serializable::Serializable {
-        std::string str = "Hello,\nworld!";
-        void exposed() override { expose("str", str); }
-    } c;
-    assert(c.serialize() == buildSerial({"STRING str = \"Hello,", "world!\""}), "Serialize multi line strings");
+    result = simple.deserialize("OBJECT not_root = 0 (42) {\n\tINT i = 13\n}");
+    assertOk(result, "Deserialize: Renamed root object");
+    assert(simple.i == 13, "Deserialize: Renamed root object (i)");
+
+    result = simple.deserialize("OBJECT ROOT = 0 (42) {\n\tINT i = 42\n}\n");
+    assertOk(result, "Deserialize: Extra newline");
+    assert(simple.i == 42, "Deserialize: Extra newline (i)");
+
+    AllTypes allTypes;
+    result = allTypes.deserialize(
+        "OBJECT ROOT = 0 (0) {\n\tBOOL b = false\n\tSHORT s = -3\n\tUSHORT us = 6\n\tINT i = -9\n\tUINT ui = "
+        "12\n\tLONG l = -15\n\tULONG ul = 18\n\tSTRING str = \"Bye bye!\"\n\tENUM My Enum = 2\n}");
+    assertOk(result, "Deserialize: AllTypes");
+    assert(!allTypes.b, "Deserialize: AllTypes (b)");
+    assert(allTypes.s == -3, "Deserialize: AllTypes (s)");
+    assert(allTypes.us == 6, "Deserialize: AllTypes (us)");
+    assert(allTypes.i == -9, "Deserialize: AllTypes (i)");
+    assert(allTypes.ui == 12, "Deserialize: AllTypes (ui)");
+    assert(allTypes.l == -15, "Deserialize: AllTypes (l)");
+    assert(allTypes.ul == 18, "Deserialize: AllTypes (ul)");
+    assert(allTypes.str == "Bye bye!", "Deserialize: AllTypes (str)");
+    assert(allTypes.myEnum == AllTypes::Enum::XYZ, "Deserialize: AllTypes (myEnum)");
+
+    serializable::Vector<int> vec;
+    result = vec.deserialize("OBJECT ROOT = 0 (2) {\n\tULONG length = 3\n\tINT 0 = 10\n\tINT 1 = 20\n\tINT 2 = 30\n}");
+    assertOk(result, "Deserialize: Vector");
+    assert(vec.size() == 3, "Deserialize: Vector (length)");
+    assert(vec[0] == 10, "Deserialize: Vector (0)");
+    assert(vec[1] == 20, "Deserialize: Vector (1)");
+    assert(vec[2] == 30, "Deserialize: Vector (2)");
 }
 
-void testDeserialization() {
-    struct : serializable::Serializable {
-        int i = 42;
-        void exposed() override { expose("i", i); }
-    } a, copy_a;
-    a.i = 13;
-    copy_a.deserialize(buildSerial({"INT i = 13"}));
-    assert(a.serialize() == copy_a.serialize(), "Deserialize single field");
+void testNested() {
+    Nested original;
+    original.s1.i = 13;
+    original.s2.i = -42;
+    original.triples.push_back(Nested::makeTriple(3, 4, 5));
+    original.triples.push_back(Nested::makeTriple(5, 12, 13));
+    original.triples.push_back(Nested::makeTriple(8, 15, 17));
+    original.triples.push_back(Nested::makeTriple(7, 24, 25));
+    original.triples.push_back(Nested::makeTriple(20, 21, 29));
+    original.triples.push_back(Nested::makeTriple(12, 35, 37));
+    original.triples.push_back(Nested::makeTriple(9, 40, 41));
+    original.triples.push_back(Nested::makeTriple(28, 45, 53));
+    original.triples.push_back(Nested::makeTriple(11, 60, 61));
+    original.triples.push_back(Nested::makeTriple(16, 63, 65));
+    original.triples.push_back(Nested::makeTriple(33, 56, 65));
+    original.triples.push_back(Nested::makeTriple(48, 55, 73));
+    original.triples.push_back(Nested::makeTriple(13, 84, 85));
+    original.triples.push_back(Nested::makeTriple(36, 77, 85));
+    original.triples.push_back(Nested::makeTriple(39, 80, 89));
+    original.triples.push_back(Nested::makeTriple(65, 72, 97));
+    auto [result, serial] = original.serialize();
+    assertOk(result, "Nested: Serialization");
 
-    struct : serializable::Serializable {
-        long time           = 1677572053;
-        int primes          = 2357;
-        bool hasToken       = true;
-        unsigned char token = 42;
-        std::string my_str  = "Hello,\nworld!";
-        void exposed() override {
-            expose("time", time);
-            expose("Primes", primes);
-            expose("Has Token", hasToken);
-            expose("Token", token);
-            expose("String", my_str);
-        }
-    } b, copy_b;
-    std::vector<const char*> serial{"LONG time = 1677572053", "INT Primes = 2357",        "BOOL Has Token = true",
-                                    "UCHAR Token = 42",       "STRING String = \"Hello,", "world!\""};
+    Nested copy;
+    result = copy.deserialize(serial);
 
-    copy_b.deserialize(buildSerial(serial));
-    assert(b.serialize() == copy_b.serialize(), "Deserialize multiple fields");
+    assertOk(result, "Nested: Deserialization");
+    assert(copy.s1.i == original.s1.i, "Nested: s1");
+    assert(copy.s2.i == original.s2.i, "Nested: s2");
+    assert(copy.triples == original.triples, "Nested: triples");
+}
 
-    shuffle(serial);
-    copy_b.deserialize(buildSerial(serial));
-    assert(b.serialize() == copy_b.serialize(), "Deserialize shuffled data");
+void testPointers() {
+    {
+        Pointing ptr;
+        ptr.simple.i       = 42;
+        ptr.other_simple.i = 123;
+        ptr.current        = &ptr.simple;
+        ptr.ptr            = &ptr;
+
+        auto [result, serial] = ptr.serialize();
+        assertOk(result, "Pointers: Serialize");
+    }
 }
 
 void testErrorDetection() {
-    struct : serializable::Serializable {
-        int i = 42;
-        void exposed() override { expose("i", i); }
-    } a;
-    assert(!a.check(""), "Check empty string");
-    assert(!a.check("\n"), "Check pseudo-empty string");
-    assert(!a.check(buildSerial({"LONG l = 42"})), "Check wrong data");
-    assert(a.check(buildSerial({"INT i = 10"})), "Check correct data");
-    assert(a.check(buildSerial({"INT i = 13", "LONG l = 43"})), "Check superset data");
-    assert(a.check(buildSerial({"Hakuna matata?", "INT i = 13", "NOT_A_TOKEN"})), "Check dirty data");
-    assert(!a.check(buildSerial({"INT i = wuff"})), "Check invalid value");
+    Simple simple;
+    Pointing pointing;
 
-    struct : serializable::Serializable {
-        bool b{true};
-        int i{-1};
-        unsigned int u{5};
-        double d{1.123};
-        std::string str;
-        void exposed() override {
-            expose("b", b);
-            expose("i", i);
-            expose("u", u);
-            expose("d", d);
-            expose("str", str);
-        }
-    } b;
-    assert(b.check(buildSerial(
-               {"BOOL b = true", "INT i = -1", "UINT u = 5", "DOUBLE d = 1.123", R"(STRING str = "my-str")"})),
-           "Typecheck correct");
-    assert(!b.check(buildSerial(
-               {"BOOL b = maybe", "INT i = -1", "UINT u = 5", "DOUBLE d = 1.123", R"(STRING str = "my-str")"})),
-           "Typecheck invalid bool");
-    assert(!b.check(buildSerial(
-               {"BOOL b = true", "INT i = 0xAF", "UINT u = 5", "DOUBLE d = 1.123", R"(STRING str = "my-str")"})),
-           "Typecheck invalid int (1)");
-    assert(!b.check(buildSerial(
-               {"BOOL b = true", "INT i = -1.23", "UINT u = 5", "DOUBLE d = 1.123", R"(STRING str = "my-str")"})),
-           "Typecheck invalid int (2)");
-    assert(!b.check(buildSerial(
-               {"BOOL b = true", "INT i = -1", "UINT u = -5", "DOUBLE d = 1.123", R"(STRING str = "my-str")"})),
-           "Typecheck invalid uint");
-    assert(!b.check(buildSerial(
-               {"BOOL b = true", "INT i = -1", "UINT u = 5", "DOUBLE d = 1,123", R"(STRING str = "my-str")"})),
-           "Typecheck invalid double");
-    assert(!b.check(buildSerial(
-               {"BOOL b = true", "INT i = -1", "UINT u = 5", "DOUBLE d = 1.123", R"(STRING str = "my-"str")"})),
-           "Typecheck invalid string (1)");
-    assert(!b.check(buildSerial(
-               {"BOOL b = true", "INT i = -1", "UINT u = 5", "DOUBLE d = 1.123", R"(STRING str = my-str)"})),
-           "Typecheck invalid string (2)");
-    assert(!b.check(buildSerial({"BOOL b = true", "INT i = -1", "UINT u = 5", "", R"(STRING str = my-str)"})),
-           "Typecheck missing value");
+    assert(simple.load("FILE DOES NOT EXIST") == Result::FILE, "Error Detection: FILE");
+
+    assert(simple.deserialize("Not a save file") == Result::STRUCTURE, "Error Detection: STRUCTURE (1)");
+    assert(simple.deserialize("") == Result::STRUCTURE, "Error Detection: STRUCTURE (2)");
+    assert(simple.deserialize("\n") == Result::STRUCTURE, "Error Detection: STRUCTURE (3)");
+    assert(simple.deserialize("OBJECT ROOT = 0 (42) {\n\tINT i = NaN\n}") == Result::STRUCTURE,
+           "Error Detection: STRUCTURE (4)");
+    assert(simple.deserialize("OBJECT ROOT = 0 (42) {}") == Result::STRUCTURE, "Error Detection: Structure (5)");
+
+    assert(simple.deserialize("OBJECT ROOT = 0 (42) {\n\tINT i = 4294967296\n}") == Result::TYPECHECK,
+           "Error Detection: TYPECHECK (1)");
+    assert(simple.deserialize("OBJECT ROOT = 0 (42) {\n\tUINT i = 123\n}") == Result::TYPECHECK,
+           "Error Detection: TYPECHECK (2)");
+
+    assert(simple.deserialize("OBJECT ROOT = 0 (42) {\n\tUINT ui = 123\n}") == Result::INTEGRITY,
+           "Error Detection: INTEGRITY (1)");
+    assert(simple.deserialize("OBJECT ROOT = 0 (42) {\n}") == Result::INTEGRITY, "Error Detection: INTEGRITY (2)");
+
+    assert(pointing.serialize().first == Result::POINTER, "Error Detection: Nullptr");
+
+    pointing.ptr     = &pointing;
+    pointing.current = &pointing.not_exposed;
+    assert(pointing.serialize().first == Result::POINTER, "Error Detection: Pointer to unexposed");
+
+    assert(
+        pointing.deserialize(
+            "OBJECT ROOT = 0 (123) {\n\tPTR Current = 3 (0)\n\tPTR Mad = 0 (0)\n\tOBJECT Other = 2 (42) {\n\t\tINT i "
+            "= 123\n\t}\n\tOBJECT Simple = 1 (42) {\n\t\tINT i = 42\n\t}\n}") == Result::TYPECHECK,
+        "Error Detection: Invalid pointer ID");
+
+    assert(pointing.deserialize("OBJECT ROOT = 0 (123) {\n\tPTR Current = 3 (42)\n\tPTR Mad = 0 (123)\n\tOBJECT Other "
+                                "= 2 (42) {\n\t\tINT i "
+                                "= 123\n\t}\n\tOBJECT Simple = 1 (42) {\n\t\tINT i = 42\n\t}\n}") == Result::POINTER,
+           "Error Detection: Invalid virtual address");
+
+    assert(pointing.deserialize("OBJECT ROOT = 0 (123) {\n\tPTR Current = 1 (42)\n\tPTR Mad = 0 (123)\n\tOBJECT Other "
+                                "= 1 (42) {\n\t\tINT i "
+                                "= 123\n\t}\n\tOBJECT Simple = 2 (42) {\n\t\tINT i = 42\n\t}\n}") == Result::OK,
+           "Error Detection: MAD pointer");
 }
 
-void testChains() {
-    struct Struct : public serializable::Serializable {
-        bool b{};
-        char c{};
-        unsigned char uc{};
-        short s{};
-        unsigned short us{};
-        int i{};
-        unsigned int ui{};
-        long l{};
-        unsigned long ul{};
-        float f{};
-        double d{};
-        std::string str{};
+void testNames() {
+    Named named;
 
-        Struct() = default;
+    {
+        named.i               = 42;
+        named.name            = "basic";
+        auto [result, serial] = named.serialize();
+        assertOk(result, "Named: Serialize basic");
 
-        Struct(bool b, char c, unsigned char uc, short s, unsigned short us, int i, unsigned int ui, long l,
-               unsigned long ul, float f, double d, const char* str)
-            : b(b), c(c), uc(uc), s(s), us(us), i(i), ui(ui), l(l), ul(ul), f(f), d(d), str(str) {}
+        named.i = 0;
+        result  = named.deserialize(serial);
+        assertOk(result, "Named: Deserialize basic");
+        assert(named.i == 42, "Named: Check basic (i)");
+    }
+    {
+        named.i               = 42;
+        named.name            = "with space";
+        auto [result, serial] = named.serialize();
+        assertOk(result, "Named: Serialize with space");
 
-        bool operator==(const Struct& a) const {
-            return b == a.b && c == a.c && uc == a.uc && s == a.s && us == a.us && i == a.i && ui == a.ui && l == a.l &&
-                   ul == a.ul && std::abs(a.f - f) < 0.1 && std::abs(a.d - d) < 0.1 && str == a.str;
-        }
+        named.i = 0;
+        result  = named.deserialize(serial);
+        assertOk(result, "Named: Deserialize with space");
+        assert(named.i == 42, "Named: Check with space (i)");
+    }
+    {
+        named.i               = 42;
+        named.name            = "  with more spaces ";
+        auto [result, serial] = named.serialize();
+        assertOk(result, "Named: Serialize with more spaces");
 
-        void exposed() override {
-            expose("Boolean", b);
-            expose("Character", c);
-            expose("Unsigned Character", uc);
-            expose("Short Number", s);
-            expose("Unsigned Short Number", us);
-            expose("Number", i);
-            expose("Unsigned Number", ui);
-            expose("Long Number", l);
-            expose("Unsigned Long Number", ul);
-            expose("Floating Point Number", f);
-            expose("Double Floating Point Number", d);
-            expose("String", str);
-        }
-    };
+        named.i = 0;
+        result  = named.deserialize(serial);
+        assertOk(result, "Named: Deserialize with more spaces");
+        assert(named.i == 42, "Named: Check with more spaces (i)");
+    }
+    {
+        named.i               = 42;
+        named.name            = "n@n-ständárd characters!\t;-)";
+        auto [result, serial] = named.serialize();
+        assertOk(result, "Named: Serialize n@n-ständárd characters!\t;-)");
 
-    Struct base(true, 'P', 'D', 123, 456, -789, 2357, -123456789, 123456789, 3.14, 2.718281828, "serialization");
-    assert(base.check(base.serialize()), "Serialize-Check-Chain failed");
+        named.i = 0;
+        result  = named.deserialize(serial);
+        assertOk(result, "Named: Deserialize n@n-ständárd characters!\t;-)");
+        assert(named.i == 42, "Named: Check n@n-ständárd characters!\t;-) (i)");
+    }
+    {
+        named.i               = 42;
+        named.name            = "{containing} \"delimiters\" = ";
+        auto [result, serial] = named.serialize();
+        assertOk(result, "Named: Serialize {containing} \"delimiters\" = ");
 
-    Struct copy;
-    copy.deserialize(base.serialize());
-    assert(copy == base, "Serialize-Deserialize-Chain failed");
+        named.i = 0;
+        result  = named.deserialize(serial);
+        assertOk(result, "Named: Deserialize {containing} \"delimiters\" = ");
+        assert(named.i == 42, "Named: Check {containing} \"delimiters\" =  (i)");
+    }
+    {
+        named.i               = 42;
+        named.name            = " ";
+        auto [result, serial] = named.serialize();
+        assertOk(result, "Named: Serialize just a space");
+
+        named.i = 0;
+        result  = named.deserialize(serial);
+        assertOk(result, "Named: Deserialize just a space");
+        assert(named.i == 42, "Named: Check just a space (i)");
+    }
+    {
+        named.i               = 42;
+        named.name            = "containing\nnewlines";
+        auto [result, serial] = named.serialize();
+        assertOk(result, "Named: Serialize containing\nnewlines");
+
+        named.i = 13;
+        result  = named.deserialize(serial);
+        assert(result == Result::STRUCTURE, "Named: Deserialize containing\nnewlines");
+        assert(named.i == 13, "Named: Check containing\nnewlines (i)");
+    }
+    {
+        named.i               = 42;
+        named.name            = "";
+        auto [result, serial] = named.serialize();
+        assertOk(result, "Named: Serialize no name");
+
+        named.i = 13;
+        result  = named.deserialize(serial);
+        assert(result == Result::STRUCTURE, "Named: Deserialize no name");
+        assert(named.i == 13, "Named: Check no name (i)");
+    }
 }
 
-void testNesting() {
-    struct : serializable::Serializable {
-        struct : serializable::Serializable {
-            struct : serializable::Serializable {
-                std::string str;
-                void exposed() override { expose("str", str); }
-            } hex, oct;
-            int number{};
-            bool prime{};
-            void exposed() override {
-                expose("Number", number);
-                expose("Is Prime", prime);
-                expose("Hexadecimal", hex);
-                expose("Octal", oct);
-            }
-        } child1, child2, child3, child4;
-        struct : serializable::Serializable {
-            void exposed() override {}
-        } empty;
-        void exposed() override {
-            expose("Child 1", child1);
-            expose("Child 2", child2);
-            expose("Child 3", child3);
-            expose("Child 4", child4);
-            expose("Empty Test", empty);
-        }
-    } master, master_copy;
+void testSpeed() {
+    // Setup constant definitions
+    using clock = std::chrono::steady_clock;
+    using ms    = std::chrono::microseconds;
+    using std::chrono::duration_cast;
 
-    master.child1.number  = 42;
-    master.child1.hex.str = (std::stringstream() << std::hex << 42).str();
-    master.child1.oct.str = (std::stringstream() << std::oct << 42).str();
+    const constexpr int ITERATIONS = 10;
+    const constexpr int ELEMENTS   = 10000;
 
-    master.child2.number  = 10;
-    master.child2.hex.str = (std::stringstream() << std::hex << 10).str();
-    master.child2.oct.str = (std::stringstream() << std::oct << 10).str();
+    // Create tracking arrays
+    std::array<long, ITERATIONS> serializeTime{};
+    std::array<long, ITERATIONS> deserializeTime{};
 
-    master.child3.number  = 13;
-    master.child3.prime   = true;
-    master.child3.hex.str = (std::stringstream() << std::hex << 13).str();
-    master.child3.oct.str = (std::stringstream() << std::oct << 13).str();
+    // Create array
+    serializable::Array<int, ELEMENTS> arr;
+    for(int element = 0; element < ELEMENTS; element++) arr[element] = element + 1;
 
-    master.child4.number  = 123;
-    master.child4.hex.str = (std::stringstream() << std::hex << 123).str();
-    master.child4.oct.str = (std::stringstream() << std::oct << 123).str();
+    // Run tests
+    for(int iteration = 0; iteration < ITERATIONS; iteration++) {
+        // Record serializing time
+        auto startSerialize            = clock::now();
+        auto [resultSerialize, serial] = arr.serialize();
+        serializeTime.at(iteration)    = duration_cast<ms>(clock::now() - startSerialize).count();
+        assertOk(resultSerialize, "Speed test: Serialize");
 
-    assert(master_copy.check(master.serialize()), "Nested Serialize-Check-Chain");
-    master_copy.deserialize(master.serialize());
-    assert(master.serialize() == master_copy.serialize(), "Nested Serialize-Deserialize-Chain");
+        // Record deserializing time
+        auto startDeserialize         = clock::now();
+        auto resultDeserialize        = arr.deserialize(serial);
+        deserializeTime.at(iteration) = duration_cast<ms>(clock::now() - startDeserialize).count();
+        assertOk(resultDeserialize, "Speed test: Deserialize");
+    }
+
+    // Calculate result
+    double serializeResult = 0;
+    for(const auto& time : serializeTime) serializeResult += static_cast<double>(time);
+    serializeResult /= ITERATIONS;
+
+    double deserializeResult = 0;
+    for(const auto& time : deserializeTime) deserializeResult += static_cast<double>(time);
+    deserializeResult /= ITERATIONS;
+
+    // Print result
+    std::cout << std::fixed << std::setprecision(2) << "Serializing took on average " << serializeResult
+              << " milliseconds\nDeserializing took on average " << deserializeResult << " milliseconds\n";
 }
-
-void testComplexTypes() {
-    enum class MyEnum { ABC, DEF, XYZ };
-    struct : serializable::Serializable {
-        MyEnum my_enum{}, my_other_enum{};
-        void exposed() override {
-            expose("my_enum", my_enum);
-            expose("other", my_other_enum);
-        }
-    } testEnum, testEnumCopy;
-
-    testEnum.my_enum       = MyEnum::DEF;
-    testEnum.my_other_enum = MyEnum::XYZ;
-    assert(testEnum.check(testEnum.serialize()), "Enum Serialize-Check-Chain");
-
-    testEnumCopy.deserialize(testEnum.serialize());
-    assert(testEnum.serialize() == testEnumCopy.serialize(), "Enum Serialize-Deserialize-Chain");
-
-    serializable::Array<int, 3> array;
-    serializable::Array<int, 3> arrayCopy;
-
-    array[0] = 42;
-    array[1] = 10;
-    array[2] = -1;
-    assert(array.check(array.serialize()), "Array Serialize-Check-Chain");
-
-    arrayCopy.deserialize(array.serialize());
-    assert(array == arrayCopy, "Array Serialize-Deserialize-Chain");
-
-    serializable::Vector<int> vector;
-    serializable::Vector<int> vectorCopy;
-
-    vector.push_back(42);
-    vector.push_back(10);
-    vector.push_back(-1);
-    vector.push_back(123);
-    vector.push_back(3);
-    assert(vector.check(vector.serialize()), "Vector Serialize-Check-Chain");
-
-    vectorCopy.deserialize(vector.serialize());
-    assert(vector == vectorCopy, "Vector Serialize-Deserialize-Chain");
-
-    serializable::List<std::string> list;
-    serializable::List<std::string> listCopy;
-
-    list.push_back("C++");
-    list.push_back("TypeScript");
-    list.push_back("Python3");
-    list.push_back("Java");
-    list.push_back("Lua");
-    list.push_back("PHP");
-    list.push_back("C#");
-    assert(list.check(list.serialize()), "List Serialize-Check-Chain");
-
-    listCopy.deserialize(list.serialize());
-    assert(list == listCopy, "List Serialize-Deserialize-Chain");
-}
-// NOLINTEND(misc-non-private-member-variables-in-classes)
 
 int main() {
-    testSerialization();
-    testDeserialization();
+    testSerialize();
+    testDeserialize();
+    testNested();
+    testPointers();
     testErrorDetection();
-    testChains();
-    testNesting();
-    testComplexTypes();
+    testNames();
+    testSpeed();
     std::cout << "All tests passed!\n";
-    return 0;
 }
