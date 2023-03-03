@@ -62,7 +62,7 @@ When deserialized, these virtual addresses get resolved to the new real address.
 Even though for most cases this approach does exactly what it is supposed to do, there are a few limitations/caveats:
 
 1. For every pointer that is serialized, the object pointed to also has to be serialized in the same invocation of the `serialize` function. Otherwise serializing the object will fail.
-2. Stored pointers lose their type. If the serialized data got corrupted or tampered with, deserializing a pointer might point you to a completely different type. To prevent this from happening you can override the `classID` method, which should return a unique ID for the current class. This ID will then be used to perform some basic type checking when deserializing pointers. Still, this is no safety guarantee. TLDR: Serializing pointers is to be used with caution.
+2. Stored pointers lose their type. If the serialized data got corrupted or tampered with, deserializing a pointer might point you to a completely different type. You can prevent this by overriding the `classID` function.
 3. Usually when exposing a variable, it becomes valid (i.e. the new value) right after your call to the `expose` function. Not so for pointers though. Since a pointer can point to an object that has not been deserialized when the pointer is deserialized, all pointers are set after _all_ `expose` calls are processed.
 
 ## Usage
@@ -88,11 +88,11 @@ Doing so will add five public member functions to your class:
 
 Any class extending the `Serializable` class has to override an abstract method: `void exposed()`.
 This is where you declare which data you would like to be serialized/deserialized.
-For every variable you want to serialize, you have to call `void expose(const char* name, T& value)`.
+For every variable you want to serialize, you have to call `void expose(const std::string& name, T& value)`.
 
 For `name` you can generally pass any string you want.
 It's a good idea to take the name of the variable, to avoid duplication and confusion.
-It's a bad idea to use strings containing `\n`, `=`, `(`, `)`, `{` and `}`, as this might confuse the parser.
+It's a bad idea to use strings containing `\n`, `=`, `(` or `)`, as this will confuse the parser.
 Every other name _should_ be fine though.
 
 For `value` you usually simply have to pass in the name of the variable - C++ will automatically pass it as a reference (as requested by the `expose` function).
@@ -101,7 +101,7 @@ The type of `value` should be a primitive type (`bool`, `[unsigned] char`, `[uns
 The given functions will now serialize/deserialize any variable exposed in this way.
 Note that it is also possible to apply some pre-/postprocessing to your variables inside of your `exposed` function.
 (You can even copy a member variable to a local variable, expose the local variable and then copy the local variable back to the member variable).
-Just keep in mind, that the `exposed` function is usually called three times per lifecycle: deserializing, checking and serializing all call `exposed`.
+Just keep in mind, that the `exposed` function is usually called twice per lifecycle: both serializing and deserializing call the `exposed` method.
 (This could be 'fixed' by writing different functions for serializing/deserializing but the library is intentionally built in this way to prevent code duplication).
 
 If you are planning on serializing and deserializing pointers, you should also override the `unsigned int classID()` method.
@@ -121,21 +121,21 @@ You should not use the numbers 0 (default) and 1-3 (the provided serializable ar
 - `public: Result save(const std::filesystem::path&)` Tries to serialize the class into the given file. Result can be `OK`, `POINTER` or `FILE`.
 - `protected: virtual void exposed()` Abstract function that is called to get exposed fields.
 - `protected: virtual unsigned int classID()` Virtual function that is called to get the ID of the current class. By default it returns 0.
-- `protected: void expose(const char*, bool&)` Expose a bool value.
-- `protected: void expose(const char*, char&)` Expose a char value.
-- `protected: void expose(const char*, unsigned char&)` Expose an unsigned char value.
-- `protected: void expose(const char*, short&)` Expose a short value.
-- `protected: void expose(const char*, unsigned short&)` Expose an unsigned short value.
-- `protected: void expose(const char*, int&)` Expose an int value.
-- `protected: void expose(const char*, unsigned int&)` Expose an unsigned int value.
-- `protected: void expose(const char*, long&)` Expose a long value.
-- `protected: void expose(const char*, unsigned long&)` Expose an unsigned long value.
-- `protected: void expose(const char*, float&)` Expose a float value.
-- `protected: void expose(const char*, double&)` Expose a double value.
-- `protected: void expose(const char*, std::string&)` Expose a string value.
-- `protected: void expose(const char*, Serializable&)` Expose a Serializable subclass.
-- `protected: template <Enum E> void expose(const char*, E&)` Expose an enum value.
-- `protected: template <SerializableChild S> void expose(const char*, S*&)` Expose a pointer to a serializable child object.
+- `protected: void expose(const std::string&, bool&)` Expose a bool value.
+- `protected: void expose(const std::string&, char&)` Expose a char value.
+- `protected: void expose(const std::string&, unsigned char&)` Expose an unsigned char value.
+- `protected: void expose(const std::string&, short&)` Expose a short value.
+- `protected: void expose(const std::string&, unsigned short&)` Expose an unsigned short value.
+- `protected: void expose(const std::string&, int&)` Expose an int value.
+- `protected: void expose(const std::string&, unsigned int&)` Expose an unsigned int value.
+- `protected: void expose(const std::string&, long&)` Expose a long value.
+- `protected: void expose(const std::string&, unsigned long&)` Expose an unsigned long value.
+- `protected: void expose(const std::string&, float&)` Expose a float value.
+- `protected: void expose(const std::string&, double&)` Expose a double value.
+- `protected: void expose(const std::string&, std::string&)` Expose a string value.
+- `protected: void expose(const std::string&, Serializable&)` Expose a Serializable subclass.
+- `protected: template <Enum E> void expose(const std::string&, E&)` Expose an enum value.
+- `protected: template <SerializableChild S> void expose(const std::string&, S*&)` Expose a pointer to a serializable child object.
 
 #### Class serializable::Array
 
@@ -164,6 +164,10 @@ Therefore it is a near-drop-in replacement for `std::list` that can be serialize
 - `concept detail::Enum` An enum type.
 - `concept detail::SerializableChild` A class deriving from `Serializable`.
 - `class detail::Serialized` An intermediate class for translating between a string and your class. Don't worry about it.
+- `std::string detail::replaceAll(const std::string&, const std::string&, const std::string&)` Replaces all occurrences of the second string in the first string with the third one.
+- `std::string detail::createString(const std::initializer_list<string>&)` Create a string from substrings.
+- `void detail::appendString(std::string&, const std::initializer_list<string>&)` Append strings to string.
+- `namespace detail::check` Contains functions for syntax checking.
 
 ### Save file syntax
 
@@ -187,7 +191,7 @@ pointer = 'PTR ', name, ' = ', unum, ' (', unum, ')';
 unum = digit, {digit};
 
 digit = <any digit>;
-char = <any character except '\n', '=', '(', ')', '{' and '}'>;
+char = <any character except '\n', '=', '(' and ')'>;
 strchar = <any character except '\n' and '"'>;
 ```
 
