@@ -7,11 +7,12 @@
 #include <exception>
 #include <filesystem>
 #include <fstream>
-#include <initializer_list>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
@@ -117,7 +118,8 @@ class SerialPointer : public Serial {
 };
 
 namespace string {
-std::string makeString(const std::initializer_list<std::string>& parts);
+template <typename... Args> requires(std::convertible_to<Args, std::string> && ...)
+std::string makeString(const Args&... parts);
 std::string substring(const std::string& str, std::size_t start, std::size_t end);
 std::string replaceAll(const std::string& str, const std::string& from, const std::string& to);
 std::string connect(const std::vector<std::string>& lines, char delimiter = '\n');
@@ -259,7 +261,7 @@ inline SerialPrimitive::SerialPrimitive(std::string type, std::string name, std:
 
 inline std::string SerialPrimitive::get() const {
     // Return primitive data string
-    return string::makeString({ type, " ", name, " = ", value });
+    return string::makeString(type, " ", name, " = ", value);
 }
 
 inline bool SerialPrimitive::set(const std::string& data) {
@@ -294,8 +296,8 @@ inline std::string SerialObject::get() const {
     std::string childrenData = string::indent(string::connect(children));
 
     // Return object data string
-    return string::makeString({ "OBJECT<", string::serializePrimitive(classID), "> ", name, " = ",
-                                string::serializePrimitive(virtualAddress), " {\n", childrenData, "\n}" });
+    return string::makeString("OBJECT<", string::serializePrimitive(classID), "> ", name, " = ",
+                              string::serializePrimitive(virtualAddress), " {\n", childrenData, "\n}");
 }
 
 inline bool SerialObject::set(const std::string& data) {
@@ -411,8 +413,8 @@ inline SerialPointer::SerialPointer(unsigned int classID, std::string name, void
 
 inline std::string SerialPointer::get() const {
     // Return pointer data string
-    return string::makeString(
-      { "PTR<", string::serializePrimitive(classID), "> ", name, " = ", string::serializePrimitive(address) });
+    return string::makeString("PTR<", string::serializePrimitive(classID), "> ", name, " = ",
+                              string::serializePrimitive(address));
 }
 
 inline bool SerialPointer::set(const std::string& data) {
@@ -468,17 +470,17 @@ inline bool SerialPointer::restorePointers(const std::unordered_map<Address, Add
 inline void SerialPointer::setTarget(void** location) { this->location = location; }
 
 namespace string {
-inline std::string makeString(const std::initializer_list<std::string>& parts) {
+template <typename... Args> requires(std::convertible_to<Args, std::string> && ...)
+std::string makeString(const Args&... parts) {
     // Calculate string length
-    std::size_t len = 0;
-    for(const auto& part : parts) len += part.size();
+    std::size_t len = (std::size(parts) + ... + 0);
 
     // Create new string
     std::string str;
     str.reserve(len);
 
     // Fill and return string
-    for(const auto& part : parts) str.append(part);
+    (str.append(&parts[0]), ...);
     return str;
 }
 
@@ -581,7 +583,7 @@ template <> inline std::string serializePrimitive<bool>(const bool& val) { retur
 template <> inline std::string serializePrimitive<std::string>(const std::string& val) {
     std::string safe = replaceAll(val, "\"", "&quot;");
     safe             = replaceAll(safe, "\n", "&newline;");
-    return makeString({ "\"", safe, "\"" });
+    return makeString("\"", safe, "\"");
 }
 
 template <Enum E> std::string serializePrimitive(const E& val) {

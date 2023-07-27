@@ -42,7 +42,9 @@ void testStringManipulation() {
     namespace str = serializable::detail::string;
 
     // Test str::makeString
-    assertEqual("Hello, World!", str::makeString({ "Hello", ", ", "World", "!" }), "str::makeString");
+    assertEqual("Hello, World!", str::makeString("Hello", ", ", "World", "!"), "str::makeString");
+    assertEqual("Hello, World!", str::makeString(std::string("Hello"), ", ", std::string("World"), "!"),
+                "str::makeString (std::string)");
 
     // Test str::substring
     assertEqual("Hello", str::substring("Hello, World!", 0, 5), "str::substring (from start)");
