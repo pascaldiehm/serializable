@@ -7,10 +7,10 @@ Checks: '
     -*-braces-around-statements,
     -*-magic-numbers,
     -bugprone-easily-swappable-parameters,
+    -google-readability-todo,
     -google-runtime-int,
     -misc-no-recursion,
     -modernize-use-trailing-return-type,
     -readability-identifier-length,
-    -google-readability-todo,
     -readability-use-anyofallof,
 '
