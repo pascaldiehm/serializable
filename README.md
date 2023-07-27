@@ -95,7 +95,7 @@ It's a good idea to take the name of the variable, to avoid duplication and conf
 It's a bad idea to use strings containing `{`, `}`, `\n` and `=`, as this might confuse the parser.
 Every other name _should_ be fine though.
 
-For `value` you usually simply have to pass in the name of the variable - C++ will automatically pass it as a reference (as requested by the `expose` function).
+For `value` you usually simply have to pass the name of the variable - C++ will automatically pass it as a reference (as requested by the `expose` function).
 The type of `value` should be a primitive type (`bool`, `[unsigned] char`, `[unsigned] short`, `[unsigned] int`, `[unsigned] long`, `double`, `float`), `std::string`, an enum, some class extending `serializable::Serializable` or a pointer to such a class.
 
 The given functions will now serialize/deserialize any variable exposed in this way.
@@ -110,59 +110,88 @@ You should not use 0 as this is the default for classes that don't implement thi
 
 ### Documentation
 
-#### Class serializable::Serializable
-
-- `public: enum Result` An enum class containing the return codes for `OK` (no error), `FILE` (file not found/accessible), `STRUCTURE` (structural error in provided serial data), `TYPECHECK` (invalid value or pointer type mismatch), `INTEGRITY` (missing required value) and `POINTER` (invalid pointer).
-- `public: Serializable(...)` The class provides a default constructor (without arguments), the default copy constructor/assignment operator, a virtual default destructor and no move constructor/assignment operator.
-- `public: std::pair<Result, std::string> serialize()` Returns the serialization result and the serialized data. Result can only be `OK` or `POINTER`.
-- `public: Result deserialize(const std::string&)` Deserialize the given string into this class. Result can be anything except `FILE`.
-- `public: Result load(const std::filesystem::path&)` Tries to load the given file and deserialize its content into the class. Result can be anything.
-- `public: Result save(const std::filesystem::path&)` Tries to serialize the class into the given file. Result can be `OK`, `POINTER` or `FILE`.
-- `protected: virtual void exposed()` Abstract function that is called to get exposed fields.
-- `protected: virtual unsigned int classID()` Virtual function that is called to get the ID of the current class. By default it returns 0.
-- `protected: void expose(const std::string&, bool&)` Expose a bool value.
-- `protected: void expose(const std::string&, char&)` Expose a char value.
-- `protected: void expose(const std::string&, unsigned char&)` Expose an unsigned char value.
-- `protected: void expose(const std::string&, short&)` Expose a short value.
-- `protected: void expose(const std::string&, unsigned short&)` Expose an unsigned short value.
-- `protected: void expose(const std::string&, int&)` Expose an int value.
-- `protected: void expose(const std::string&, unsigned int&)` Expose an unsigned int value.
-- `protected: void expose(const std::string&, long&)` Expose a long value.
-- `protected: void expose(const std::string&, unsigned long&)` Expose an unsigned long value.
-- `protected: void expose(const std::string&, float&)` Expose a float value.
-- `protected: void expose(const std::string&, double&)` Expose a double value.
-- `protected: template <Enum E> void expose(const std::string&, E&)` Expose an enum value.
-- `protected: void expose(const std::string&, std::string&)` Expose a string value.
-- `protected: void expose(const std::string&, Serializable&)` Expose a Serializable subclass.
-- `protected: template <typename S> requires std::is_base_of_v<Serializable, S> void expose(const std::string&, S*&)` Expose a pointer to a serializable child object.
-
-#### Aliases, Concepts and other Classes
-
-- `using detail::Address` A type alias for addresses.
-- `concept detail::Enum` An enum type.
-- `class detail::Serial` An intermediate class for translating between a string and your class. Don't worry about it.
-- `class detail::SerialPrimitive` An intermediate class for translating a primitive value between a string and your class.
-  - `enum detail::SerialPrimitive::Type` Type of a primitive value.
-- `class detail::SerialObject` An intermediate class for translating a subclass between a string and your class.
-- `class detail::SerialPointer` An intermediate class for translating a pointer between a string and your class.
-- `std::string detail::string::makeString(const std::initializer_list<std::string>&)` Builds a string from parts.
-- `std::string detail::string::substring(const std::string&, std::size_t, std::size_t)` Substring from start to end.
-- `std::string detail::string::replaceAll(const std::string&, const std::string&, const std::string&)` Replaces all occurrences of the second string in the first string with the third string.
-- `std::string detail::string::connect(const std::vector<std::string>&)` Combines a vector of lines into a single multiline string.
-- `std::vector<std::string> detail::string::split(const std::string&)` Splits a multiline string into a vector of lines. Keeps areas between curly brackets together.
-- `std::string detail::string::indent(const std::string&)` Indents every line in a string by one tab.
-- `std::string detail::string::unindent(const std::string&)` Removes one tab from every line in a string.
-- `std::string {primitive}ToString({primitive})` Converts a `{primitive}` to a string.
-- `std::optional<{primitive}> stringTo{Primitive}(const std::string&)` Converts a string to a `{primitive}`.
-- `std::string detail::string::encodeString(const std::string&)` Replaces unsafe characters (`"`, `\n`) in a string with safe versions.
-- `std::string detail::string::decodeString(const std::string&)` Replaces safe versions of unsafe characters with the original character.
-- `template <Enum E> std::string detail::string::enumToString(E)` Converts an enum to a string.
-- `template <Enum E> std::optional<E> detail::string::stringToEnum(const std::string&)` Converts a string to an enum.
-- `std::string detail::string::typeToString(SerialPrimitive::Type)` Returns a string representation of the type.
-- `SerialPrimitive::Type detail::string::stringToType(const std::string&)` Converts a string representation of a type the the type.
-- `std::optional<std::array<std::string, 3>> detail::string::parsePrimitive(const std::string&)` Parses a line of data as a primitive.
-- `std::optional<std::array<std::string, 4>> detail::string::parseObject(const std::string&)` Parses a block of data as an object.
-- `std::optional<std::array<std::string, 3>> detail::string::parsePointer(const std::string&)` Parses a line of data as a pointer.
+- `namespace serializable` The enclosing namespace for everything this library provides.
+  - `class Serializable` The base class providing the serialization functionality to any derived class.
+    - `enum class Result` The result of a serialization action. `OK`: Everything worked, `FILE`: File was not found or could not be created, `STRUCTURE`: Data is syntactically invalid, `INTEGRITY`: Data does not satisfy required structure, `TYPECHECK`: Data has invalid types, `POINTER`: Invalid pointer type of value.
+    - `public: Serializable()` A default constructor.
+    - `public: Serializable(const Serializable&)` A default copy constructor.
+    - `public: Serializable(Serializable&&)` An explicitly deleted move constructor.
+    - `public: Serializable& operator=(const Serializable&)` A default copy assignment operator.
+    - `public: Serializable& operator=(Serializable&&)` An explicitly deleted move assignment operator.
+    - `public: virtual ~Serializable()` A virtual default destructor.
+    - `public: std::pair<Result, std::string> serialize()` Serialize the class into a string.
+    - `public: Result deserialize(const std::string&)` Deserialize a string into the class.
+    - `public: Result save(const std::filesystem::path&)` Serialize to a file.
+    - `public: Result load(const std::filesystem::path&)` Deserialize from a file.
+    - `protected: virtual void exposed()` Will be called to get exposed variables.
+    - `protected: virtual unsigned int classID() const` Will be called to get the unique class id.
+    - `protected: template <SerializablePrimitive S> void expose(const std::string&, S&)` Expose a primitive value.
+    - `protected: void expose(const std::string&, Serializable& value)` Expose a serializable class.
+    - `protected: template <SerializableObject S> void expose(const std::string&, S*&)` Expose a pointer to a serializable class.
+  - `namespace detail` A namespace containing helper functions, structures and other implementation details.
+    - `using Address` A type alias for addresses.
+    - `concept SerializableObject` A concept for any class extending the `Serializable` base class.
+    - `concept Enum` A concept for any enum.
+    - `concept Number` A concept for any numeric type (a number that can be converted to a string by std::to_string).
+    - `class Serial` An abstract base class for structured serial data.
+      - `public: Serial()` A default constructor.
+      - `public: Serial(const Serial&)` A default copy constructor.
+      - `public: Serial(Serial&&)` An explicitly deleted move constructor.
+      - `public: Serial& operator=(const Serial&)` A default copy assignment operator.
+      - `public: Serial& operator=(Serial&&)` An explicitly deleted move assignment operator.
+      - `public: virtual ~Serial()` A virtual default destructor.
+      - `public: virtual std::string get() const` A function returning the serialized data of this object.
+      - `public: virtual bool set(const std::string&)` A function setting the object from serialized data returning the success of the operation.
+      - `public: virtual std::string getName() const` A function returning the name of the serialize field.
+      - `public: SerialPrimitive* asPrimitive()` A function returning `this` as a `SerialPrimitive` pointer.
+      - `public: SerialObject* asObject()` A function returning `this` as a `SerialObject` pointer.
+      - `public: SerialPointer* asPointer()` A function returning `this` as a `SerialPointer` pointer.
+    - `class SerialPrimitive` A class representing a serialized primitive.
+      - `public: SerialPrimitive()` A default constructor.
+      - `public: SerialPrimitive(std::string, std::string, std::string)` A constructor from data.
+      - `public: std::string get() const override` An implementation of `Serial::get`.
+      - `public: void set(const std::string&) override` An implementation `Serial::set`.
+      - `public: std::string getName() const override` An implementation `Serial::getName`.
+      - `public: std::string getType() const` Returns the serialized type.
+      - `public: std::string getValue() const` Returns the serialized value.
+    - `class SerialObject` A class representing a serialized subclass.
+      - `public: SerialObject()` A default constructor.
+      - `public: SerialObject(unsigned int, std::string, Address, Address)` A constructor from data.
+      - `public: std::string get() const override` An implementation of `Serial::get`.
+      - `public: void set(const std::string&) override` An implementation `Serial::set`.
+      - `public: std::string getName() const override` An implementation `Serial::getName`.
+      - `public: void append(const std::shared_ptr<Serial>&)` Appends a shared pointer to a `Serial` object to this object.
+      - `public: std::optional<std::shared_ptr<Serial>> getChild(const std::string&)` Returns the child with the specified name (if it exists).
+      - `public: unsigned int getClass()` Returns the class id of the serialized object.
+      - `public: void virtualizeAddresses(std::unordered_map<Address, Address>&)` Generates a virtual address and registers it in the address map. Also passes the invocation to all children `SerialObject`s.
+      - `public: void restoreAddresses(std::unordered_map<Address, Address>&)` Registers its real address under its virtual address. Also passes the invocation to all children `SerialObject`s.
+      - `public: bool virtualizePointers(const std::unordered_map<Address, Address>&)` Replace the real addresses of all children pointers with the corresponding virtual address. Returns `false` if a pointer could not be mapped. Also passes the invocation to all children `SerialObject`s.
+      - `public: bool restorePointers(const std::unordered_map<Address, Address>&)` Replace the virtual addresses of all children pointers with the corresponding real address. Returns `false` if a pointer could not be mapped. Also passes the invocation to all children `SerialObject`s.
+      - `public: void setRealAddress(Address)` Set the objects real address.
+    - `class SerialPointer` A class representing a serialized pointer.
+      - `public: SerialPointer()` A default constructor.
+      - `public: SerialPointer(unsigned int, std::string, void**)` A constructor from data.
+      - `public: std::string get() const override` An implementation of `Serial::get`.
+      - `public: void set(const std::string&) override` An implementation `Serial::set`.
+      - `public: std::string getName() const override` An implementation `Serial::getName`.
+      - `public: unsigned int getClass()` Returns the class id of the serialized pointer.
+      - `public: bool virtualizePointers(const std::unordered_map<Address, Address>&)` Replaces the real address with the corresponding virtual address. Returns `false` if the real value is not mapped.
+      - `public: bool restorePointers(const std::unordered_map<Address, Address>&)` Replaces the virtual address with the corresponding real address. Returns `false` if the virtual value is not mapped. Also updates and validates the original pointer.
+    - `namespace string` A namespace grouping function working with strings.
+      - `std::string makeString(const std::initializer_list<std::string>&)` Concatenates multiple strings into one.
+      - `std::string substring(const std::string&, std::size_t, std::size_t)` Substring with with start and end.
+      - `std::string replaceAll(const std::string&, const std::string&, const std::string&)` Replaces every occurrence of the second argument in the first one with the third one.
+      - `std::string connect(const std::vector<std::string>&, char)` Connects multiple strings into one.
+      - `std::vector<std::string> split(const std::string&, char)` Splits a string at a delimiter. Keeps strings between `{` and `}` together.
+      - `std::string indent(const std::string&)` Indents every line in a string.
+      - `std::string unindent(const std::string&)` Un-indents every line in a string.
+      - `template <typename T> const constexpr char* TypeToString` a string representing the provided type.
+      - `template <typename T> std::string serializePrimitive(const T& val)` Serialize a primitive value.
+      - `template <typename T> std::optional<T> deserializePrimitive(const std::string&)` Deserialize a string to a primitive value.
+      - `std::optional<std::array<std::string, 3>> parsePrimitive(const std::string&)`
+      - `std::optional<std::array<std::string, 4>> parseObject(const std::string&)`
+      - `std::optional<std::array<std::string, 3>> parsePointer(const std::string&)`
+    - `concept SerializablePrimitive` A concept for a type that can be serialized and deserialized.
 
 ### Save file syntax
 

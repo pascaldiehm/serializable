@@ -53,23 +53,23 @@ void testStringManipulation() {
     assertEqual("abcdef", str::connect({ "abcdef" }), "connect", "Case 2");
     assertEqual("", str::connect({}), "connect", "Case 3");
 
-    const auto split1 = str::split("abc\ndef\nxyz");
-    assert(3 == split1.size(), "split", "Case 1");
-    assertEqual("abc", split1[0], "split", "Case 1.1");
-    assertEqual("def", split1[1], "split", "Case 1.2");
-    assertEqual("xyz", split1[2], "split", "Case 1.3");
+    auto split = str::split("abc\ndef\nxyz");
+    assert(3 == split.size(), "split", "Case 1");
+    assertEqual("abc", split[0], "split", "Case 1.1");
+    assertEqual("def", split[1], "split", "Case 1.2");
+    assertEqual("xyz", split[2], "split", "Case 1.3");
 
-    const auto split2 = str::split("abc\n\ndef\n");
-    assert(4 == split2.size(), "split", "Case 2");
-    assertEqual("abc", split2[0], "split", "Case 2.1");
-    assertEqual("", split2[1], "split", "Case 2.2");
-    assertEqual("def", split2[2], "split", "Case 2.3");
-    assertEqual("", split2[3], "split", "Case 2.4");
+    split = str::split("abc\n\ndef\n");
+    assert(4 == split.size(), "split", "Case 2");
+    assertEqual("abc", split[0], "split", "Case 2.1");
+    assertEqual("", split[1], "split", "Case 2.2");
+    assertEqual("def", split[2], "split", "Case 2.3");
+    assertEqual("", split[3], "split", "Case 2.4");
 
-    const auto split3 = str::split("abc {\n\tdef\n\txyz\n}\nhi");
-    assert(2 == split3.size(), "split", "Case 3");
-    assertEqual("abc {\n\tdef\n\txyz\n}", split3[0], "split", "Case 3.1");
-    assertEqual("hi", split3[1], "split", "Case 3.2");
+    split = str::split("abc {\n\tdef\n\txyz\n}\nhi");
+    assert(2 == split.size(), "split", "Case 3");
+    assertEqual("abc {\n\tdef\n\txyz\n}", split[0], "split", "Case 3.1");
+    assertEqual("hi", split[1], "split", "Case 3.2");
 
     assertEqual("\tabc", str::indent("abc"), "indent", "Case 1");
     assertEqual("\tabc\n\tdef\n\txyz", str::indent("abc\ndef\nxyz"), "indent", "Case 2");
@@ -83,113 +83,115 @@ void testStringManipulation() {
 void testPrimitiveConversions() {
     namespace str            = serializable::detail::string;
     const constexpr auto NaN = std::nullopt;
+    enum class Enum { ABC, DEF, XYZ };
 
-    assertEqual("true", str::boolToString(true), "boolToString", "true");
-    assertEqual("false", str::boolToString(false), "boolToString", "false");
+    assertEqual("true", str::serializePrimitive(true), "serialize bool", "true");
+    assertEqual("false", str::serializePrimitive(false), "serialize bool", "false");
 
-    assertEqual(true, str::stringToBool("true"), "stringToBool", "true");
-    assertEqual(false, str::stringToBool("false"), "stringToBool", "false");
-    assertEqual(NaN, str::stringToBool("meow"), "stringToBool", "invalid");
+    assertEqual(true, str::deserializePrimitive<bool>("true"), "deserialize bool", "true");
+    assertEqual(false, str::deserializePrimitive<bool>("false"), "deserialize bool", "false");
+    assertEqual(NaN, str::deserializePrimitive<bool>("meow"), "deserialize bool", "invalid");
 
-    assertEqual("42", str::charToString(42), "charToString", "42");
-    assertEqual("-42", str::charToString(-42), "charToString", "-42");
+    assertEqual("42", str::serializePrimitive(42), "serialize char", "42");
+    assertEqual("-42", str::serializePrimitive(-42), "serialize char", "-42");
 
-    assertEqual(42, str::stringToChar("42"), "stringToChar", "42");
-    assertEqual(-42, str::stringToChar("-42"), "stringToChar", "-42");
-    assertEqual(NaN, str::stringToChar("forty-two"), "stringToChar", "invalid");
-    assertEqual(NaN, str::stringToChar(std::to_string(CHAR_MIN - 1)), "stringToChar", "underflow");
-    assertEqual(NaN, str::stringToChar(std::to_string(CHAR_MAX + 1)), "stringToChar", "overflow");
+    assertEqual(42, str::deserializePrimitive<char>("42"), "deserialize char", "42");
+    assertEqual(-42, str::deserializePrimitive<char>("-42"), "deserialize char", "-42");
+    assertEqual(NaN, str::deserializePrimitive<char>("forty-two"), "deserialize char", "invalid");
+    assertEqual(NaN, str::deserializePrimitive<char>(std::to_string(CHAR_MIN - 1)), "deserialize char", "underflow");
+    assertEqual(NaN, str::deserializePrimitive<char>(std::to_string(CHAR_MAX + 1)), "deserialize char", "overflow");
 
-    assertEqual("42", str::ucharToString(42), "ucharToString", "42");
+    assertEqual("42", str::serializePrimitive(42), "serialize unsigned char", "42");
 
-    assertEqual(42, str::stringToUChar("42"), "stringToUChar", "42");
-    assertEqual(NaN, str::stringToUChar("-42"), "stringToUChar", "negative");
-    assertEqual(NaN, str::stringToUChar("forty-two"), "stringToUChar", "invalid");
-    assertEqual(NaN, str::stringToUChar(std::to_string(UCHAR_MAX + 1)), "stringToUChar", "overflow");
+    assertEqual(42, str::deserializePrimitive<unsigned char>("42"), "deserialize unsigned char", "42");
+    assertEqual(NaN, str::deserializePrimitive<unsigned char>("-42"), "deserialize unsigned char", "negative");
+    assertEqual(NaN, str::deserializePrimitive<unsigned char>("forty-two"), "deserialize unsigned char", "invalid");
+    assertEqual(NaN, str::deserializePrimitive<unsigned char>(std::to_string(UCHAR_MAX + 1)),
+                "deserialize unsigned char", "overflow");
 
-    assertEqual("42", str::shortToString(42), "shortToString", "42");
-    assertEqual("-42", str::shortToString(-42), "shortToString", "-42");
+    assertEqual("42", str::serializePrimitive(42), "serialize short", "42");
+    assertEqual("-42", str::serializePrimitive(-42), "serialize short", "-42");
 
-    assertEqual(42, str::stringToShort("42"), "stringToShort", "42");
-    assertEqual(-42, str::stringToShort("-42"), "stringToShort", "-42");
-    assertEqual(NaN, str::stringToShort("forty-two"), "stringToShort", "invalid");
-    assertEqual(NaN, str::stringToShort(std::to_string(SHRT_MIN - 1)), "stringToShort", "underflow");
-    assertEqual(NaN, str::stringToShort(std::to_string(SHRT_MAX + 1)), "stringToShort", "overflow");
+    assertEqual(42, str::deserializePrimitive<short>("42"), "deserialize short", "42");
+    assertEqual(-42, str::deserializePrimitive<short>("-42"), "deserialize short", "-42");
+    assertEqual(NaN, str::deserializePrimitive<short>("forty-two"), "deserialize short", "invalid");
+    assertEqual(NaN, str::deserializePrimitive<short>(std::to_string(SHRT_MIN - 1)), "deserialize short", "underflow");
+    assertEqual(NaN, str::deserializePrimitive<short>(std::to_string(SHRT_MAX + 1)), "deserialize short", "overflow");
 
-    assertEqual("42", str::ushortToString(42), "ushortToString", "42");
+    assertEqual("42", str::serializePrimitive(42), "serialize unsigned short", "42");
 
-    assertEqual(42, str::stringToUShort("42"), "stringToUShort", "42");
-    assertEqual(NaN, str::stringToUShort("-42"), "stringToUShort", "negative");
-    assertEqual(NaN, str::stringToUShort("forty-two"), "stringToUShort", "invalid");
-    assertEqual(NaN, str::stringToUShort(std::to_string(USHRT_MAX + 1)), "stringToUShort", "overflow");
+    assertEqual(42, str::deserializePrimitive<unsigned short>("42"), "deserialize unsigned short", "42");
+    assertEqual(NaN, str::deserializePrimitive<unsigned short>("-42"), "deserialize unsigned short", "negative");
+    assertEqual(NaN, str::deserializePrimitive<unsigned short>("forty-two"), "deserialize unsigned short", "invalid");
+    assertEqual(NaN, str::deserializePrimitive<unsigned short>(std::to_string(USHRT_MAX + 1)),
+                "deserialize unsigned short", "overflow");
 
-    assertEqual("42", str::intToString(42), "intToString", "42");
-    assertEqual("-42", str::intToString(-42), "intToString", "-42");
+    assertEqual("42", str::serializePrimitive(42), "serialize int", "42");
+    assertEqual("-42", str::serializePrimitive(-42), "serialize int", "-42");
 
-    assertEqual(42, str::stringToInt("42"), "stringToInt", "42");
-    assertEqual(-42, str::stringToInt("-42"), "stringToInt", "-42");
-    assertEqual(NaN, str::stringToInt("forty-two"), "stringToInt", "invalid");
-    assertEqual(NaN, str::stringToInt(std::to_string(INT_MIN - 1L)), "stringToInt", "underflow");
-    assertEqual(NaN, str::stringToInt(std::to_string(INT_MAX + 1L)), "stringToInt", "overflow");
+    assertEqual(42, str::deserializePrimitive<int>("42"), "deserialize int", "42");
+    assertEqual(-42, str::deserializePrimitive<int>("-42"), "deserialize int", "-42");
+    assertEqual(NaN, str::deserializePrimitive<int>("forty-two"), "deserialize int", "invalid");
+    assertEqual(NaN, str::deserializePrimitive<int>(std::to_string(INT_MIN - 1L)), "deserialize int", "underflow");
+    assertEqual(NaN, str::deserializePrimitive<int>(std::to_string(INT_MAX + 1L)), "deserialize int", "overflow");
 
-    assertEqual("42", str::uintToString(42), "uintToString", "42");
+    assertEqual("42", str::serializePrimitive(42), "serialize unsigned int", "42");
 
-    assertEqual(42, str::stringToUInt("42"), "stringToUInt", "42");
-    assertEqual(NaN, str::stringToUInt("-42"), "stringToUInt", "negative");
-    assertEqual(NaN, str::stringToUInt("forty-two"), "stringToUInt", "invalid");
-    assertEqual(NaN, str::stringToUInt(std::to_string(UINT_MAX + 1L)), "stringToUInt", "overflow");
+    assertEqual(42, str::deserializePrimitive<unsigned int>("42"), "deserialize unsigned int", "42");
+    assertEqual(NaN, str::deserializePrimitive<unsigned int>("-42"), "deserialize unsigned int", "negative");
+    assertEqual(NaN, str::deserializePrimitive<unsigned int>("forty-two"), "deserialize unsigned int", "invalid");
+    assertEqual(NaN, str::deserializePrimitive<unsigned int>(std::to_string(UINT_MAX + 1L)), "deserialize unsigned int",
+                "overflow");
 
-    assertEqual("42", str::longToString(42), "longToString", "42");
-    assertEqual("-42", str::longToString(-42), "longToString", "-42");
+    assertEqual("42", str::serializePrimitive(42), "serialize long", "42");
+    assertEqual("-42", str::serializePrimitive(-42), "serialize long", "-42");
 
-    assertEqual(42, str::stringToLong("42"), "stringToLong", "42");
-    assertEqual(-42, str::stringToLong("-42"), "stringToLong", "-42");
-    assertEqual(NaN, str::stringToLong("forty-two"), "stringToLong", "invalid");
-    assertEqual(NaN, str::stringToLong(std::to_string(LONG_MIN) + "0"), "stringToLong", "underflow");
-    assertEqual(NaN, str::stringToLong(std::to_string(LONG_MAX) + "0"), "stringToLong", "overflow");
+    assertEqual(42, str::deserializePrimitive<long>("42"), "deserialize long", "42");
+    assertEqual(-42, str::deserializePrimitive<long>("-42"), "deserialize long", "-42");
+    assertEqual(NaN, str::deserializePrimitive<long>("forty-two"), "deserialize long", "invalid");
+    assertEqual(NaN, str::deserializePrimitive<long>(std::to_string(LONG_MIN) + "0"), "deserialize long", "underflow");
+    assertEqual(NaN, str::deserializePrimitive<long>(std::to_string(LONG_MAX) + "0"), "deserialize long", "overflow");
 
-    assertEqual("42", str::ulongToString(42), "ulongToString", "42");
+    assertEqual("42", str::serializePrimitive(42), "serialize unsigned long", "42");
 
-    assertEqual(42, str::stringToULong("42"), "stringToULong", "42");
-    assertEqual(NaN, str::stringToULong("-42"), "stringToULong", "negative");
-    assertEqual(NaN, str::stringToULong("forty-two"), "stringToULong", "invalid");
-    assertEqual(NaN, str::stringToULong(std::to_string(ULONG_MAX) + "0"), "stringToULong", "overflow");
+    assertEqual(42, str::deserializePrimitive<unsigned long>("42"), "deserialize unsigned long", "42");
+    assertEqual(NaN, str::deserializePrimitive<unsigned long>("-42"), "deserialize unsigned long", "negative");
+    assertEqual(NaN, str::deserializePrimitive<unsigned long>("forty-two"), "deserialize unsigned long", "invalid");
+    assertEqual(NaN, str::deserializePrimitive<unsigned long>(std::to_string(ULONG_MAX) + "0"),
+                "deserialize unsigned long", "overflow");
 
-    assertEqual("3.141000", str::floatToString(3.141), "floatToString", "PI");
-    assertEqual("-3.141000", str::floatToString(-3.141), "floatToString", "-PI");
+    assertEqual("3.141000", str::serializePrimitive(3.141), "serialize float", "PI");
+    assertEqual("-3.141000", str::serializePrimitive(-3.141), "serialize float", "-PI");
 
-    assert(std::abs(3.141 - str::stringToFloat("3.141000").value_or(0)) < 0.0001, "stringToFloat", "PI");
-    assert(std::abs(-3.141 - str::stringToFloat("-3.141000").value_or(0)) < 0.0001, "stringToFloat", "-PI");
-    assertEqual(NaN, str::stringToFloat("pi"), "stringToFloat", "invalid");
+    assert(std::abs(3.141 - str::deserializePrimitive<float>("3.141000").value_or(0)) < 0.0001, "deserialize float",
+           "PI");
+    assert(std::abs(-3.141 - str::deserializePrimitive<float>("-3.141000").value_or(0)) < 0.0001, "deserialize float",
+           "-PI");
+    assertEqual(NaN, str::deserializePrimitive<float>("pi"), "deserialize float", "invalid");
 
-    assertEqual("3.141000", str::doubleToString(3.141), "doubleToString", "PI");
-    assertEqual("-3.141000", str::doubleToString(-3.141), "doubleToString", "-PI");
+    assertEqual("3.141000", str::serializePrimitive(3.141), "serialize double", "PI");
+    assertEqual("-3.141000", str::serializePrimitive(-3.141), "serialize double", "-PI");
 
-    assert(std::abs(3.141 - str::stringToDouble("3.141000").value_or(0)) < 0.0001, "stringToDouble", "PI");
-    assert(std::abs(-3.141 - str::stringToDouble("-3.141000").value_or(0)) < 0.0001, "stringToDouble", "-PI");
-    assertEqual(NaN, str::stringToDouble("pi"), "stringToDouble", "invalid");
+    assert(std::abs(3.141 - str::deserializePrimitive<double>("3.141000").value_or(0)) < 0.0001, "deserialize double",
+           "PI");
+    assert(std::abs(-3.141 - str::deserializePrimitive<double>("-3.141000").value_or(0)) < 0.0001, "deserialize double",
+           "-PI");
+    assertEqual(NaN, str::deserializePrimitive<double>("pi"), "deserialize double", "invalid");
 
-    assertEqual("\"Hello, world!\"", str::encodeString("Hello, world!"), "encodeString", "Hello, world!");
-    assertEqual("\"&quot;Hi!&quot;&newline;\"", str::encodeString("\"Hi!\"\n"), "encodeString", "Escaped characters");
+    assertEqual("\"Hello, world!\"", str::serializePrimitive<std::string>("Hello, world!"), "serialize string",
+                "Hello, world!");
+    assertEqual("\"&quot;Hi!&quot;&newline;\"", str::serializePrimitive<std::string>("\"Hi!\"\n"), "serialize string",
+                "Escaped characters");
 
-    assertEqual("Hello!", str::decodeString("\"Hello!\""), "decodeString", "Hello!");
-    assertEqual("\"Hi!\"\n", str::decodeString("\"&quot;Hi!&quot;&newline;\""), "decodeString", "Escaped characters");
-}
+    assertEqual("Hello!", str::deserializePrimitive<std::string>("\"Hello!\""), "deserialize string", "Hello!");
+    assertEqual("\"Hi!\"\n", str::deserializePrimitive<std::string>("\"&quot;Hi!&quot;&newline;\""),
+                "deserialize string", "Escaped characters");
 
-void testComplexConversions() {
-    namespace str = serializable::detail::string;
-    using Type    = serializable::detail::SerialPrimitive::Type;
+    assertEqual("1", str::serializePrimitive(Enum::DEF), "serialize enum", "def");
 
-    assertEqual("VOID", str::typeToString(Type::VOID), "typeToString", "VOID");
-    assertEqual("BOOL", str::typeToString(Type::BOOL), "typeToString", "BOOL");
-    assertEqual("INT", str::typeToString(Type::INT), "typeToString", "INT");
-    assertEqual("USHORT", str::typeToString(Type::USHORT), "typeToString", "USHORT");
-    assertEqual("STRING", str::typeToString(Type::STRING), "typeToString", "STRING");
-
-    assertEqual(Type::BOOL, str::stringToType("BOOL"), "stringToType", "BOOL");
-    assertEqual(Type::UINT, str::stringToType("UINT"), "stringToType", "UINT");
-    assertEqual(Type::STRING, str::stringToType("STRING"), "stringToType", "STRING");
-    assertEqual(Type::VOID, str::stringToType("INVALID"), "stringToType", "INVALID");
+    assertEqual(Enum::XYZ, str::deserializePrimitive<Enum>("2").value_or(Enum::ABC), "deserialize enum", "xyz");
+    assertEqual(NaN, str::deserializePrimitive<Enum>("ABC"), "deserialize enum", "invalid");
+    assertEqual(static_cast<Enum>(4), str::deserializePrimitive<Enum>("4"), "deserialize enum", "out of range");
 }
 
 void testParsers() {
@@ -260,7 +262,7 @@ void testParsers() {
 void testSerialPrimitive() {
     using serializable::detail::SerialPrimitive;
 
-    const SerialPrimitive source(SerialPrimitive::Type::INT, "the_answer", "42");
+    const SerialPrimitive source("INT", "the_answer", "42");
     assertEqual("INT the_answer = 42", source.get(), "SerialPrimitive", "get");
 
     SerialPrimitive target;
@@ -276,13 +278,13 @@ void testSerialObject() {
     using serializable::detail::SerialPrimitive;
 
     SerialObject source(1, "root", 0, 0);
-    source.append(std::make_unique<SerialPrimitive>(SerialPrimitive::Type::BOOL, "my_bool", "false"));
-    source.append(std::make_unique<SerialPrimitive>(SerialPrimitive::Type::INT, "something", "123"));
-    source.append(std::make_unique<SerialPrimitive>(SerialPrimitive::Type::FLOAT, "pi", "3.141"));
+    source.append(std::make_unique<SerialPrimitive>("BOOL", "my_bool", "false"));
+    source.append(std::make_unique<SerialPrimitive>("INT", "something", "123"));
+    source.append(std::make_unique<SerialPrimitive>("FLOAT", "pi", "3.141"));
     {
         auto pos = std::make_unique<SerialObject>(2, "pos", 0, 0);
-        pos->append(std::make_unique<SerialPrimitive>(SerialPrimitive::Type::INT, "x", "1"));
-        pos->append(std::make_unique<SerialPrimitive>(SerialPrimitive::Type::INT, "y", "4"));
+        pos->append(std::make_unique<SerialPrimitive>("INT", "x", "1"));
+        pos->append(std::make_unique<SerialPrimitive>("INT", "y", "4"));
         source.append(std::move(pos));
     }
 
@@ -589,7 +591,6 @@ void testErrors() {
 int main() {
     testStringManipulation();
     testPrimitiveConversions();
-    testComplexConversions();
     testParsers();
 
     testSerialPrimitive();
