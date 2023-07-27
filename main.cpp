@@ -314,14 +314,14 @@ void testSerialObject() {
     using serializable::detail::SerialPrimitive;
 
     SerialObject source(0, "root", 0, 0);
-    source.append(std::make_shared<SerialPrimitive>("INT", "answer", "42"));
-    source.append(std::make_shared<SerialPrimitive>("FLOAT", "PI", "3.14159"));
-    source.append(std::make_shared<SerialPrimitive>("BOOL", "my_bool", "true"));
+    source.append(std::make_unique<SerialPrimitive>("INT", "answer", "42"));
+    source.append(std::make_unique<SerialPrimitive>("FLOAT", "PI", "3.14159"));
+    source.append(std::make_unique<SerialPrimitive>("BOOL", "my_bool", "true"));
     {
-        auto pos = std::make_shared<SerialObject>(1, "pos", 0, 0);
-        pos->append(std::make_shared<SerialPrimitive>("INT", "x", "1"));
-        pos->append(std::make_shared<SerialPrimitive>("INT", "y", "4"));
-        source.append(pos);
+        auto pos = std::make_unique<SerialObject>(1, "pos", 0, 0);
+        pos->append(std::make_unique<SerialPrimitive>("INT", "x", "1"));
+        pos->append(std::make_unique<SerialPrimitive>("INT", "y", "4"));
+        source.append(std::move(pos));
     }
 
     SerialObject target;
@@ -438,7 +438,7 @@ struct AllTypes : public serializable::Serializable {
         expose("vec", vec);
     }
 
-    unsigned int classID() const override { return 1; }
+    [[nodiscard]] unsigned int classID() const override { return 1; }
 };
 
 void testAllTypes() {
@@ -472,7 +472,7 @@ void testAllTypes() {
 
     // Deserialize invalid pointer
     const auto tampered = serializable::detail::string::replaceAll(serial.second, "PTR<1> p = 1", "PTR<1> p = 42");
-    assertEqual(AllTypes::Result::POINTER, target.deserialize(tampered), "AllTypes::deserialize() (invalid pointer)");
+    assertEqual(AllTypes::Result::POINTER, target.deserialize(tampered), "AllTypes::deserialize() (invalid pointer) ");
 }
 
 // Nested
@@ -526,7 +526,7 @@ struct Errors : public serializable::Serializable {
 
     void exposed() override { expose(name, value); }
 
-    unsigned int classID() const override { return 2; }
+    [[nodiscard]] unsigned int classID() const override { return 2; }
 };
 
 void testErrors() {
@@ -598,8 +598,8 @@ void testErrors() {
     errors.name = "";
     serial      = errors.serialize();
     assertEqual(Errors::Result::OK, serial.first, "error (no name)");
-    assertEqual("OBJECT<2> root = 1 {\n\tSTRING " + errors.name + " = \"value\"\n}", serial.second, "error (no name)");
-    assertEqual(Errors::Result::OK, errors.deserialize(serial.second), "error (no name)");
+    assertEqual("OBJECT<2> root = 1 {\n\tSTRING " + errors.name + " = \"value\"\n}", serial.second, "error (no name) ");
+    assertEqual(Errors::Result::OK, errors.deserialize(serial.second), " error(no name) ");
 }
 
 // Stress
@@ -617,7 +617,7 @@ struct Stress : public serializable::Serializable {
             expose("z", z);
         }
 
-        unsigned int classID() const override {
+        [[nodiscard]] unsigned int classID() const override {
             unsigned int sum = 0;
             const char* type = serializable::detail::string::TypeToString<T>;
             for(char c = *type; c != 0; c = *++type) sum += c % 10; // NOLINT(*-pointer-arithmetic)
@@ -636,7 +636,7 @@ struct Stress : public serializable::Serializable {
         expose("closest enemy", closestEnemy);
     }
 
-    unsigned int classID() const override { return 1; }
+    [[nodiscard]] unsigned int classID() const override { return 1; }
 };
 
 void stressTest() {

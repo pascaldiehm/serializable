@@ -12,7 +12,6 @@
 #include <optional>
 #include <sstream>
 #include <string>
-#include <string_view>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
@@ -46,9 +45,10 @@ class Serial {
     Serial& operator=(Serial&&)      = delete;
     virtual ~Serial()                = default;
 
-    [[nodiscard]] virtual std::string get() const           = 0;
-    [[nodiscard]] virtual bool set(const std::string& data) = 0;
-    [[nodiscard]] virtual std::string getName() const       = 0;
+    [[nodiscard]] virtual std::string get() const               = 0;
+    [[nodiscard]] virtual bool set(const std::string& data)     = 0;
+    [[nodiscard]] virtual std::string getName() const           = 0;
+    [[nodiscard]] virtual std::unique_ptr<Serial> clone() const = 0;
 
     [[nodiscard]] SerialPrimitive* asPrimitive();
     [[nodiscard]] SerialObject* asObject();
@@ -63,6 +63,7 @@ class SerialPrimitive : public Serial {
     [[nodiscard]] std::string get() const override;
     [[nodiscard]] bool set(const std::string& data) override;
     [[nodiscard]] std::string getName() const override;
+    [[nodiscard]] std::unique_ptr<Serial> clone() const override;
 
     [[nodiscard]] std::string getType() const;
     [[nodiscard]] std::string getValue() const;
@@ -79,9 +80,11 @@ class SerialObject : public Serial {
     [[nodiscard]] std::string get() const override;
     [[nodiscard]] bool set(const std::string& data) override;
     [[nodiscard]] std::string getName() const override;
+    [[nodiscard]] std::unique_ptr<Serial> clone() const override;
 
-    void append(const std::shared_ptr<Serial>& child);
-    [[nodiscard]] std::optional<std::shared_ptr<Serial>> getChild(const std::string& name) const;
+    void emplace(unsigned int classID, std::string name, Address realAddress, Address virtualAddress);
+    void append(std::unique_ptr<Serial> child);
+    [[nodiscard]] std::optional<Serial*> getChild(const std::string& name) const;
     [[nodiscard]] unsigned int getClass() const;
     void virtualizeAddresses(std::unordered_map<Address, Address>& addressMap);
     void restoreAddresses(std::unordered_map<Address, Address>& addressMap) const;
@@ -93,7 +96,7 @@ class SerialObject : public Serial {
     std::string name;
     unsigned int classID{};
     Address realAddress{}, virtualAddress{};
-    std::unordered_map<std::string, std::shared_ptr<Serial>> children;
+    std::unordered_map<std::string, std::unique_ptr<Serial>> children;
 };
 
 class SerialPointer : public Serial {
@@ -104,10 +107,11 @@ class SerialPointer : public Serial {
     [[nodiscard]] std::string get() const override;
     [[nodiscard]] bool set(const std::string& data) override;
     [[nodiscard]] std::string getName() const override;
+    [[nodiscard]] std::unique_ptr<Serial> clone() const override;
 
     [[nodiscard]] unsigned int getClass() const;
-    [[nodiscard]] bool virtualizePointers(const std::unordered_map<Address, Address>& addressMap);
-    [[nodiscard]] bool restorePointers(const std::unordered_map<Address, Address>& addressMap);
+    [[nodiscard]] bool virtualizePointer(const std::unordered_map<Address, Address>& addressMap);
+    [[nodiscard]] bool restorePointer(const std::unordered_map<Address, Address>& addressMap);
     void setTarget(void** location);
 
   private:
@@ -195,9 +199,9 @@ class Serializable {
     enum class Result { OK, FILE, STRUCTURE, INTEGRITY, TYPECHECK, POINTER };
 
     Serializable()                               = default;
-    Serializable(const Serializable&)            = default;
+    Serializable(const Serializable&)            = delete;
     Serializable(Serializable&&)                 = delete;
-    Serializable& operator=(const Serializable&) = default;
+    Serializable& operator=(const Serializable&) = delete;
     Serializable& operator=(Serializable&&)      = delete;
     virtual ~Serializable()                      = default;
 
@@ -208,7 +212,7 @@ class Serializable {
 
   protected:
     virtual void exposed() = 0;
-    virtual unsigned int classID() const;
+    [[nodiscard]] virtual unsigned int classID() const;
 
     template <detail::SerializablePrimitive S> void expose(const std::string& name, S& value);
     void expose(const std::string& name, Serializable& value);
@@ -220,7 +224,7 @@ class Serializable {
 
     Mode mode{};
     Result result{};
-    detail::SerialObject serial;
+    std::unique_ptr<detail::Serial> serial;
 };
 
 namespace detail {
@@ -259,10 +263,7 @@ inline SerialPointer* Serial::asPointer() { return dynamic_cast<SerialPointer*>(
 inline SerialPrimitive::SerialPrimitive(std::string type, std::string name, std::string value)
     : type(std::move(type)), name(std::move(name)), value(std::move(value)) {}
 
-inline std::string SerialPrimitive::get() const {
-    // Return primitive data string
-    return string::makeString(type, " ", name, " = ", value);
-}
+inline std::string SerialPrimitive::get() const { return string::makeString(type, " ", name, " = ", value); }
 
 inline bool SerialPrimitive::set(const std::string& data) {
     // Parse data
@@ -278,6 +279,10 @@ inline bool SerialPrimitive::set(const std::string& data) {
 }
 
 inline std::string SerialPrimitive::getName() const { return name; }
+
+inline std::unique_ptr<Serial> SerialPrimitive::clone() const {
+    return std::make_unique<SerialPrimitive>(type, name, value);
+}
 
 inline std::string SerialPrimitive::getType() const { return type; }
 
@@ -322,17 +327,17 @@ inline bool SerialObject::set(const std::string& data) {
     for(const auto& child : children) {
         if(child.empty()) continue;
         if(child.starts_with("OBJECT")) {
-            auto object = std::make_shared<SerialObject>();
+            auto object = std::make_unique<SerialObject>();
             if(!object->set(child)) return false;
-            append(object);
+            append(std::move(object));
         } else if(child.starts_with("PTR")) {
-            auto pointer = std::make_shared<SerialPointer>();
+            auto pointer = std::make_unique<SerialPointer>();
             if(!pointer->set(child)) return false;
-            append(pointer);
+            append(std::move(pointer));
         } else {
-            auto primitive = std::make_shared<SerialPrimitive>();
+            auto primitive = std::make_unique<SerialPrimitive>();
             if(!primitive->set(child)) return false;
-            append(primitive);
+            append(std::move(primitive));
         }
     }
 
@@ -341,12 +346,25 @@ inline bool SerialObject::set(const std::string& data) {
 
 inline std::string SerialObject::getName() const { return name; }
 
-inline void SerialObject::append(const std::shared_ptr<Serial>& child) { children[child->getName()] = child; }
+inline std::unique_ptr<Serial> SerialObject::clone() const {
+    auto clone = std::make_unique<SerialObject>(classID, name, realAddress, virtualAddress);
+    for(const auto& [_, child] : children) clone->append(child->clone());
+    return clone;
+}
 
-inline std::optional<std::shared_ptr<Serial>> SerialObject::getChild(const std::string& name) const {
+inline void SerialObject::emplace(unsigned int classID, std::string name, Address realAddress, Address virtualAddress) {
+    this->classID        = classID;
+    this->name           = std::move(name);
+    this->realAddress    = realAddress;
+    this->virtualAddress = virtualAddress;
+}
+
+inline void SerialObject::append(std::unique_ptr<Serial> child) { children[child->getName()] = std::move(child); }
+
+inline std::optional<Serial*> SerialObject::getChild(const std::string& name) const {
     // Check if name exists and return
     if(!children.contains(name)) return std::nullopt;
-    return children.at(name);
+    return children.at(name).get();
 }
 
 inline unsigned int SerialObject::getClass() const { return classID; }
@@ -384,7 +402,7 @@ inline bool SerialObject::virtualizePointers(const std::unordered_map<Address, A
             SerialObject* object = child->asObject();
             if(object != nullptr)
                 if(!object->virtualizePointers(addressMap)) return false;
-        } else if(!pointer->virtualizePointers(addressMap)) return false;
+        } else if(!pointer->virtualizePointer(addressMap)) return false;
     }
 
     return true;
@@ -398,7 +416,7 @@ inline bool SerialObject::restorePointers(const std::unordered_map<Address, Addr
             SerialObject* object = child->asObject();
             if(object != nullptr)
                 if(!object->restorePointers(addressMap)) return false;
-        } else if(!pointer->restorePointers(addressMap)) return false;
+        } else if(!pointer->restorePointer(addressMap)) return false;
     }
 
     return true;
@@ -438,9 +456,19 @@ inline bool SerialPointer::set(const std::string& data) {
 
 inline std::string SerialPointer::getName() const { return name; }
 
+inline std::unique_ptr<Serial> SerialPointer::clone() const {
+    // Create new pointer
+    auto pointer = std::make_unique<SerialPointer>(classID, name, location);
+
+    // Copy address
+    pointer->address = address;
+
+    return pointer;
+}
+
 inline unsigned int SerialPointer::getClass() const { return classID; }
 
-inline bool SerialPointer::virtualizePointers(const std::unordered_map<Address, Address>& addressMap) {
+inline bool SerialPointer::virtualizePointer(const std::unordered_map<Address, Address>& addressMap) {
     // Check if address is mapped
     if(!addressMap.contains(address)) return false;
 
@@ -450,7 +478,7 @@ inline bool SerialPointer::virtualizePointers(const std::unordered_map<Address, 
     return true;
 }
 
-inline bool SerialPointer::restorePointers(const std::unordered_map<Address, Address>& addressMap) {
+inline bool SerialPointer::restorePointer(const std::unordered_map<Address, Address>& addressMap) {
     // Check if address is mapped
     if(!addressMap.contains(address)) return false;
 
@@ -753,7 +781,7 @@ inline std::pair<Serializable::Result, std::string> Serializable::serialize() {
     // Setup serialization state
     mode   = Mode::SERIALIZING;
     result = Result::OK;
-    serial = { classID(), "root", std::bit_cast<detail::Address>(this), 0 };
+    serial = std::make_unique<detail::SerialObject>(classID(), "root", std::bit_cast<detail::Address>(this), 0);
 
     // Run exposers
     exposed();
@@ -761,34 +789,35 @@ inline std::pair<Serializable::Result, std::string> Serializable::serialize() {
 
     // Virtualize addresses
     std::unordered_map<detail::Address, detail::Address> addressMap;
-    serial.virtualizeAddresses(addressMap);
-    if(!serial.virtualizePointers(addressMap)) return { Result::POINTER, "" };
+    serial->asObject()->virtualizeAddresses(addressMap);
+    if(!serial->asObject()->virtualizePointers(addressMap)) return { Result::POINTER, "" };
 
-    return { result, serial.get() };
+    return { Result::OK, serial->get() };
 }
 
 inline Serializable::Result Serializable::deserialize(const std::string& data) {
     // Setup deserialization state
     mode   = Mode::DESERIALIZING;
     result = Result::OK;
+    serial = std::make_unique<detail::SerialObject>();
 
     // Parse serialized data
-    if(!serial.set(data)) return Result::STRUCTURE;
+    if(!serial->set(data)) return Result::STRUCTURE;
 
     // Check root object class id
-    if(serial.getClass() != classID()) return Result::TYPECHECK;
+    if(serial->asObject()->getClass() != classID()) return Result::TYPECHECK;
 
     // Run exposers
     exposed();
     if(result != Result::OK) return result;
 
     // Restore addresses
+    serial->asObject()->setRealAddress(std::bit_cast<detail::Address>(this));
     std::unordered_map<detail::Address, detail::Address> addressMap;
-    serial.setRealAddress(std::bit_cast<detail::Address>(this));
-    serial.restoreAddresses(addressMap);
-    if(!serial.restorePointers(addressMap)) return Result::POINTER;
+    serial->asObject()->restoreAddresses(addressMap);
+    if(!serial->asObject()->restorePointers(addressMap)) return Result::POINTER;
 
-    return result;
+    return Result::OK;
 }
 
 inline Serializable::Result Serializable::save(const std::filesystem::path& path) {
@@ -831,12 +860,12 @@ template <detail::SerializablePrimitive S> void Serializable::expose(const std::
     if(result != Result::OK) return;
 
     if(mode == Mode::SERIALIZING) {
-        // Append new serial primitive object to root
-        serial.append(std::make_shared<detail::SerialPrimitive>(detail::string::TypeToString<S>, name,
-                                                                detail::string::serializePrimitive(value)));
+        // Append new serial primitive to root
+        serial->asObject()->append(std::make_unique<detail::SerialPrimitive>(
+          detail::string::TypeToString<S>, name, detail::string::serializePrimitive(value)));
     } else {
         // Find serial value in root object
-        const auto serialValue = serial.getChild(name);
+        const auto serialValue = serial->asObject()->getChild(name);
         if(!serialValue) {
             result = Result::INTEGRITY;
             return;
@@ -875,8 +904,11 @@ inline void Serializable::expose(const std::string& name, Serializable& value) {
         // Serialize object
         value.mode   = Mode::SERIALIZING;
         value.result = Result::OK;
-        value.serial = { value.classID(), name, std::bit_cast<detail::Address>(&value), 0 };
+        std::unique_ptr<detail::Serial> serialValue =
+          std::make_unique<detail::SerialObject>(value.classID(), name, std::bit_cast<detail::Address>(&value), 0);
+        value.serial = std::move(serialValue);
         value.exposed();
+        serialValue = std::move(value.serial);
 
         // Take result
         if(value.result != result) {
@@ -885,10 +917,10 @@ inline void Serializable::expose(const std::string& name, Serializable& value) {
         }
 
         // Append serial object to root
-        serial.append(std::make_shared<detail::SerialObject>(value.serial));
+        serial->asObject()->append(std::move(serialValue));
     } else {
         // Find serial value in root object
-        const auto serialValue = serial.getChild(name);
+        const auto serialValue = serial->asObject()->getChild(name);
         if(!serialValue) {
             result = Result::INTEGRITY;
             return;
@@ -913,7 +945,7 @@ inline void Serializable::expose(const std::string& name, Serializable& value) {
         // Deserialize object
         value.mode   = Mode::DESERIALIZING;
         value.result = Result::OK;
-        value.serial = *serialObject;
+        value.serial = serialObject->clone();
         value.exposed();
 
         // Take result
@@ -938,11 +970,11 @@ template <detail::SerializableObject S> void Serializable::expose(const std::str
     void** address = std::bit_cast<void**>(&value);
 
     if(mode == Mode::SERIALIZING) {
-        // Append new serial pointer object to root
-        serial.append(std::make_shared<detail::SerialPointer>(value->classID(), name, address));
+        // Append new serial pointer to root
+        serial->asObject()->append(std::make_unique<detail::SerialPointer>(value->classID(), name, address));
     } else {
         // Find serial value in root object
-        const auto serialValue = serial.getChild(name);
+        const auto serialValue = serial->asObject()->getChild(name);
         if(!serialValue) {
             result = Result::INTEGRITY;
             return;
@@ -970,7 +1002,7 @@ template <detail::SerializableContainer S> void Serializable::expose(const std::
     // Abort if previous error was detected
     if(result != Result::OK) return;
 
-    // Create serial container
+    // Create new serial container
     detail::SerialContainer<S> serialContainer(value);
 
     // Expose container
