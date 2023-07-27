@@ -1,0 +1,13 @@
+Checks: '
+    *,
+    -altera-*,
+    -fuchsia-*,
+    -llvmlibc-*,
+    -*-braces-around-statements,
+    -*-magic-numbers,
+    -bugprone-easily-swappable-parameters,
+    -google-runtime-int,
+    -misc-no-recursion,
+    -modernize-use-trailing-return-type,
+    -readability-identifier-length,
+'
