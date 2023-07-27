@@ -216,7 +216,7 @@ primitive_floating = ('FLOAT' | 'DOUBLE'), ' ', name, ' = ', ['-'], unum, '.', u
 unum = digit, {digit};
 
 digit = <any digit>;
-safe_char = <any character except curly brackets, newline, equals and space>;
+safe_char = <any character except curly brackets, newline and equals>;
 string_char = <any character except quotes and newlines>;
 ```
 

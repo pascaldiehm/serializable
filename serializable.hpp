@@ -508,7 +508,7 @@ inline std::vector<std::string> split(const std::string& data, char delimiter) {
             else if(data.at(pos) == '{') level++;
         } else {
             if(data.at(pos) == '{') level++;
-            else if(data.at(pos) == '\n') {
+            else if(data.at(pos) == delimiter) {
                 lines.push_back(substring(data, begin, pos));
                 begin = pos + 1;
             }
@@ -540,8 +540,7 @@ template <> inline std::string serializePrimitive<bool>(const bool& val) { retur
 template <> inline std::string serializePrimitive<std::string>(const std::string& val) {
     std::string safe = replaceAll(val, "\"", "&quot;");
     safe             = replaceAll(safe, "\n", "&newline;");
-    safe             = makeString({ "\"", safe, "\"" });
-    return safe;
+    return makeString({ "\"", safe, "\"" });
 }
 
 template <Enum E> std::string serializePrimitive(const E& val) {
@@ -624,10 +623,10 @@ template <> inline std::optional<double> deserializePrimitive<double>(const std:
 }
 
 template <> inline std::optional<std::string> deserializePrimitive<std::string>(const std::string& str) {
+    if(!str.starts_with('"') || !str.ends_with('"')) return std::nullopt;
     std::string unsafe = substring(str, 1, str.size() - 1);
     unsafe             = replaceAll(unsafe, "&newline;", "\n");
-    unsafe             = replaceAll(unsafe, "&quot;", "\"");
-    return unsafe;
+    return replaceAll(unsafe, "&quot;", "\"");
 }
 
 template <Enum E> inline std::optional<E> deserializePrimitive(const std::string& str) {

@@ -1,83 +1,88 @@
 #include "serializable.hpp"
 #include <bit>
+#include <chrono>
 #include <climits>
 #include <iostream>
 #include <memory>
 #include <optional>
 #include <string>
-#include <utility>
 
 // NOLINTBEGIN(*-non-private-*)
 
 // Assert
-template <typename T> concept Printable = requires(T t) {
-    { std::cout << t << "" };
-};
+template <typename T> concept Printable = requires(T t) { std::cout << t; };
 
-void assert(bool b, const char* function, const char* message) {
+void assert(bool b, const char* message) {
     if(b) return;
-    std::cout << "[FAILED] " << function << ": " << message << "\n";
+    std::cout << "[FAILED] "
+              << ": " << message << '\n';
 }
 
-template <typename T, typename U>
-void assertEqual(const T& expected, const U& actual, const char* function, const char* message) {
-    assert(expected == actual, function, message); // NOLINT(*-decay)
+template <typename T, typename U> void assertEqual(const T& expected, const U& actual, const char* message) {
+    assert(expected == actual, message);
 }
 
-template <Printable T, Printable U>
-void assertEqual(const T& expected, const U& actual, const char* function, const char* message) {
-    if(expected == actual) return;                                                             // NOLINT(*-decay)
-    assert(false, function, message);                                                          // NOLINT(*-decay)
-    std::cout << "### EXPECTED ###\n" << expected << "\n### ACTUAL ###\n" << actual << "\n\n"; // NOLINT(*-decay)
+template <Printable T, Printable U> void assertEqual(const T& expected, const U& actual, const char* message) {
+    if(expected == actual) return; // NOLINT(*-decay)
+    assert(false, message);
+    // NOLINTNEXTLINE(*-decay)
+    std::cout << "### EXPECTED ###\n" << expected << "\n### ACTUAL ###\n" << actual << "\n### END ###\n";
 }
 
 template <serializable::detail::Enum T, serializable::detail::Enum U>
-void assertEqual(const T& expected, const U& actual, const char* function, const char* message) {
-    assertEqual(static_cast<unsigned int>(expected), static_cast<unsigned int>(actual), function, message);
+void assertEqual(const T& expected, const U& actual, const char* message) {
+    assertEqual(static_cast<int>(expected), static_cast<int>(actual), message);
 }
 
 // String manipulation
 void testStringManipulation() {
     namespace str = serializable::detail::string;
 
-    assertEqual("abcdefxyz", str::makeString({ "abc", "def", "xyz" }), "makeString", "Case 1");
+    // Test str::makeString
+    assertEqual("Hello, World!", str::makeString({ "Hello", ", ", "World", "!" }), "str::makeString");
 
-    assertEqual("def", str::substring("abcdefxyz", 3, 6), "substring", "Case 1");
+    // Test str::substring
+    assertEqual("Hello", str::substring("Hello, World!", 0, 5), "str::substring (from start)");
+    assertEqual("World", str::substring("Hello, World!", 7, 12), "str::substring (from middle)");
+    assertEqual("!", str::substring("Hello, World!", 12, 13), "str::substring (from end)");
 
-    assertEqual("acaccaacaaca", str::replaceAll("ababbaabaaba", "b", "c"), "replaceAll", "Case 2");
-    assertEqual("a<>aa<>a", str::replaceAll("abaaba", "b", "<>"), "replaceAll", "Case 2");
-    assertEqual("a____bb__b__b____aa", str::replaceAll("aababbbabbabbababaa", "ab", "__"), "replaceAll", "Case 3");
-    assertEqual("xabxba", str::replaceAll("aaabaaba", "aa", "x"), "replaceAll", "Case 4");
+    // Test str::replaceAll
+    assertEqual("Hello, World!", str::replaceAll("Hello, World!", "!", "!"), "str::replaceAll (no change)");
+    assertEqual("Hell_, W_rld!", str::replaceAll("Hello, World!", "o", "_"), "str::replaceAll (same size)");
+    assertEqual("Hell, Wrld!", str::replaceAll("Hello, World!", "o", ""), "str::replaceAll (smaller)");
+    assertEqual("Helloo, Woorld!", str::replaceAll("Hello, World!", "o", "oo"), "str::replaceAll (larger)");
 
-    assertEqual("abc\ndef\nxyz", str::connect({ "abc", "def", "xyz" }), "connect", "Case 1");
-    assertEqual("abcdef", str::connect({ "abcdef" }), "connect", "Case 2");
-    assertEqual("", str::connect({}), "connect", "Case 3");
+    // Test str::connect
+    assertEqual("", str::connect({}), "str::connect (empty)");
+    assertEqual("", str::connect({ "" }), "str::connect (empty multiline)");
+    assertEqual("\n", str::connect({ "", "" }), "str::connect (empty multiline)");
+    assertEqual("ABC", str::connect({ "ABC" }), "str::connect (single)");
+    assertEqual("ABC\nDEF", str::connect({ "ABC", "DEF" }), "str::connect (multiple)");
+    assertEqual("ABC-DEF-XYZ", str::connect({ "ABC", "DEF", "XYZ" }, '-'), "str::connect (with separator)");
 
-    auto split = str::split("abc\ndef\nxyz");
-    assert(3 == split.size(), "split", "Case 1");
-    assertEqual("abc", split[0], "split", "Case 1.1");
-    assertEqual("def", split[1], "split", "Case 1.2");
-    assertEqual("xyz", split[2], "split", "Case 1.3");
+    // Test str::split
+    assertEqual(std::vector<std::string>{}, str::split(""), "str::split (empty)");
+    assertEqual(std::vector<std::string>{ "", "" }, str::split("\n"), "str::split (empty multiline)");
+    assertEqual(std::vector<std::string>{ "ABC" }, str::split("ABC"), "str::split (single)");
+    assertEqual(std::vector<std::string>{ "ABC", "DEF" }, str::split("ABC\nDEF"), "str::split (multiple)");
+    assertEqual(std::vector<std::string>{ "ABC", "DEF", "XYZ" }, str::split("ABC-DEF-XYZ", '-'),
+                "str::split (with separator)");
 
-    split = str::split("abc\n\ndef\n");
-    assert(4 == split.size(), "split", "Case 2");
-    assertEqual("abc", split[0], "split", "Case 2.1");
-    assertEqual("", split[1], "split", "Case 2.2");
-    assertEqual("def", split[2], "split", "Case 2.3");
-    assertEqual("", split[3], "split", "Case 2.4");
+    // Test str::indent
+    assertEqual("\t", str::indent(""), "str::indent (empty)");
+    assertEqual("\t\n\t", str::indent("\n"), "str::indent (empty multiline)");
+    assertEqual("\tABC", str::indent("ABC"), "str::indent (single)");
+    assertEqual("\tABC\n\tDEF", str::indent("ABC\nDEF"), "str::indent (multiple)");
 
-    split = str::split("abc {\n\tdef\n\txyz\n}\nhi");
-    assert(2 == split.size(), "split", "Case 3");
-    assertEqual("abc {\n\tdef\n\txyz\n}", split[0], "split", "Case 3.1");
-    assertEqual("hi", split[1], "split", "Case 3.2");
-
-    assertEqual("\tabc", str::indent("abc"), "indent", "Case 1");
-    assertEqual("\tabc\n\tdef\n\txyz", str::indent("abc\ndef\nxyz"), "indent", "Case 2");
-    assertEqual("\tabc\n\t\t\n\t\tdef\n\t", str::indent("abc\n\t\n\tdef\n"), "indent", "Case 3");
-
-    assertEqual("abc", str::unindent("\tabc"), "unindent", "Case 1");
-    assertEqual("abc\ndef\nxyz", str::unindent("\tabc\n\tdef\n\txyz"), "unindent", "Case 2");
-    assertEqual("abc\n\t\n\tdef\n", str::unindent("\tabc\n\t\t\n\t\tdef\n\t"), "unindent", "Case 3");
+    // Test str::unindent
+    assertEqual("", str::unindent(""), "str::unindent (empty)");
+    assertEqual("", str::unindent("\t"), "str::unindent (single tab)");
+    assertEqual("\t", str::unindent("\t\t"), "str::unindent (multiple tabs)");
+    assertEqual("", str::unindent("\n"), "str::unindent (empty multiline)");
+    assertEqual("\n", str::unindent("\t\n\t"), "str::unindent (single tab multiline)");
+    assertEqual("\n\t", str::unindent("\t\n\t\t"), "str::unindent (multiple tabs multiline)");
+    assertEqual("ABC", str::unindent("\tABC"), "str::unindent (single)");
+    assertEqual("ABC\nDEF", str::unindent("\tABC\n\tDEF"), "str::unindent (multiple)");
 }
 
 void testPrimitiveConversions() {
@@ -85,236 +90,265 @@ void testPrimitiveConversions() {
     const constexpr auto NaN = std::nullopt;
     enum class Enum { ABC, DEF, XYZ };
 
-    assertEqual("true", str::serializePrimitive(true), "serialize bool", "true");
-    assertEqual("false", str::serializePrimitive(false), "serialize bool", "false");
+    // Test str::serializePrimitive(bool)
+    assertEqual("true", str::serializePrimitive(true), "serialize bool (true)");
+    assertEqual("false", str::serializePrimitive(false), "serialize bool (false)");
 
-    assertEqual(true, str::deserializePrimitive<bool>("true"), "deserialize bool", "true");
-    assertEqual(false, str::deserializePrimitive<bool>("false"), "deserialize bool", "false");
-    assertEqual(NaN, str::deserializePrimitive<bool>("meow"), "deserialize bool", "invalid");
+    // Test str::deserializePrimitive<bool>()
+    assertEqual(true, str::deserializePrimitive<bool>("true"), "deserialize bool (true)");
+    assertEqual(false, str::deserializePrimitive<bool>("false"), "deserialize bool (false)");
 
-    assertEqual("42", str::serializePrimitive(42), "serialize char", "42");
-    assertEqual("-42", str::serializePrimitive(-42), "serialize char", "-42");
+    // Test str::serializePrimitive(char)
+    assertEqual("42", str::serializePrimitive<char>(42), "serialize char (positive)");
+    assertEqual("-42", str::serializePrimitive<char>(-42), "serialize char (negative)");
 
-    assertEqual(42, str::deserializePrimitive<char>("42"), "deserialize char", "42");
-    assertEqual(-42, str::deserializePrimitive<char>("-42"), "deserialize char", "-42");
-    assertEqual(NaN, str::deserializePrimitive<char>("forty-two"), "deserialize char", "invalid");
-    assertEqual(NaN, str::deserializePrimitive<char>(std::to_string(CHAR_MIN - 1)), "deserialize char", "underflow");
-    assertEqual(NaN, str::deserializePrimitive<char>(std::to_string(CHAR_MAX + 1)), "deserialize char", "overflow");
+    // Test str::deserializePrimitive<char>()
+    assertEqual(42, str::deserializePrimitive<char>("42"), "deserialize char (positive)");
+    assertEqual(-42, str::deserializePrimitive<char>("-42"), "deserialize char (negative)");
+    assertEqual(NaN, str::deserializePrimitive<char>("forty-two"), "deserialize char (invalid)");
+    assertEqual(NaN, str::deserializePrimitive<char>(std::to_string(CHAR_MIN - 1)), "deserialize char (underflow)");
+    assertEqual(NaN, str::deserializePrimitive<char>(std::to_string(CHAR_MAX + 1)), "deserialize char (overflow)");
 
-    assertEqual("42", str::serializePrimitive(42), "serialize unsigned char", "42");
+    // Test str::serializePrimitive(unsigned char)
+    assertEqual("42", str::serializePrimitive<unsigned char>(42), "serialize uchar (positive)");
 
-    assertEqual(42, str::deserializePrimitive<unsigned char>("42"), "deserialize unsigned char", "42");
-    assertEqual(NaN, str::deserializePrimitive<unsigned char>("-42"), "deserialize unsigned char", "negative");
-    assertEqual(NaN, str::deserializePrimitive<unsigned char>("forty-two"), "deserialize unsigned char", "invalid");
+    // Test str::deserializePrimitive<unsigned char>()
+    assertEqual(42, str::deserializePrimitive<unsigned char>("42"), "deserialize uchar (positive)");
+    assertEqual(NaN, str::deserializePrimitive<unsigned char>("-42"), "deserialize uchar (negative)");
+    assertEqual(NaN, str::deserializePrimitive<unsigned char>("forty-two"), "deserialize uchar (invalid)");
     assertEqual(NaN, str::deserializePrimitive<unsigned char>(std::to_string(UCHAR_MAX + 1)),
-                "deserialize unsigned char", "overflow");
+                "deserialize uchar (overflow)");
 
-    assertEqual("42", str::serializePrimitive(42), "serialize short", "42");
-    assertEqual("-42", str::serializePrimitive(-42), "serialize short", "-42");
+    // Test str::serializePrimitive(short)
+    assertEqual("42", str::serializePrimitive<short>(42), "serialize short (positive)");
+    assertEqual("-42", str::serializePrimitive<short>(-42), "serialize short (negative)");
 
-    assertEqual(42, str::deserializePrimitive<short>("42"), "deserialize short", "42");
-    assertEqual(-42, str::deserializePrimitive<short>("-42"), "deserialize short", "-42");
-    assertEqual(NaN, str::deserializePrimitive<short>("forty-two"), "deserialize short", "invalid");
-    assertEqual(NaN, str::deserializePrimitive<short>(std::to_string(SHRT_MIN - 1)), "deserialize short", "underflow");
-    assertEqual(NaN, str::deserializePrimitive<short>(std::to_string(SHRT_MAX + 1)), "deserialize short", "overflow");
+    // Test str::deserializePrimitive<short>()
+    assertEqual(42, str::deserializePrimitive<short>("42"), "deserialize short (positive)");
+    assertEqual(-42, str::deserializePrimitive<short>("-42"), "deserialize short (negative)");
+    assertEqual(NaN, str::deserializePrimitive<short>("forty-two"), "deserialize short (invalid)");
+    assertEqual(NaN, str::deserializePrimitive<short>(std::to_string(SHRT_MIN - 1)), "deserialize short (underflow)");
+    assertEqual(NaN, str::deserializePrimitive<short>(std::to_string(SHRT_MAX + 1)), "deserialize short (overflow)");
 
-    assertEqual("42", str::serializePrimitive(42), "serialize unsigned short", "42");
+    // Test str::serializePrimitive(unsigned short)
+    assertEqual("42", str::serializePrimitive<unsigned short>(42), "serialize ushort (positive)");
 
-    assertEqual(42, str::deserializePrimitive<unsigned short>("42"), "deserialize unsigned short", "42");
-    assertEqual(NaN, str::deserializePrimitive<unsigned short>("-42"), "deserialize unsigned short", "negative");
-    assertEqual(NaN, str::deserializePrimitive<unsigned short>("forty-two"), "deserialize unsigned short", "invalid");
+    // Test str::deserializePrimitive<unsigned short>()
+    assertEqual(42, str::deserializePrimitive<unsigned short>("42"), "deserialize ushort (positive)");
+    assertEqual(NaN, str::deserializePrimitive<unsigned short>("-42"), "deserialize ushort (negative)");
+    assertEqual(NaN, str::deserializePrimitive<unsigned short>("forty-two"), "deserialize ushort (invalid)");
     assertEqual(NaN, str::deserializePrimitive<unsigned short>(std::to_string(USHRT_MAX + 1)),
-                "deserialize unsigned short", "overflow");
+                "deserialize ushort (overflow)");
 
-    assertEqual("42", str::serializePrimitive(42), "serialize int", "42");
-    assertEqual("-42", str::serializePrimitive(-42), "serialize int", "-42");
+    // Test str::serializePrimitive(int)
+    assertEqual("42", str::serializePrimitive<int>(42), "serialize int (positive)");
+    assertEqual("-42", str::serializePrimitive<int>(-42), "serialize int (negative)");
 
-    assertEqual(42, str::deserializePrimitive<int>("42"), "deserialize int", "42");
-    assertEqual(-42, str::deserializePrimitive<int>("-42"), "deserialize int", "-42");
-    assertEqual(NaN, str::deserializePrimitive<int>("forty-two"), "deserialize int", "invalid");
-    assertEqual(NaN, str::deserializePrimitive<int>(std::to_string(INT_MIN - 1L)), "deserialize int", "underflow");
-    assertEqual(NaN, str::deserializePrimitive<int>(std::to_string(INT_MAX + 1L)), "deserialize int", "overflow");
+    // Test str::deserializePrimitive<int>()
+    assertEqual(42, str::deserializePrimitive<int>("42"), "deserialize int (positive)");
+    assertEqual(-42, str::deserializePrimitive<int>("-42"), "deserialize int (negative)");
+    assertEqual(NaN, str::deserializePrimitive<int>("forty-two"), "deserialize int (invalid)");
+    assertEqual(NaN, str::deserializePrimitive<int>(std::to_string(INT_MIN - 1L)), "deserialize int (underflow)");
+    assertEqual(NaN, str::deserializePrimitive<int>(std::to_string(INT_MAX + 1L)), "deserialize int (overflow)");
 
-    assertEqual("42", str::serializePrimitive(42), "serialize unsigned int", "42");
+    // Test str::serializePrimitive(unsigned int)
+    assertEqual("42", str::serializePrimitive<unsigned int>(42), "serialize uint (positive)");
 
-    assertEqual(42, str::deserializePrimitive<unsigned int>("42"), "deserialize unsigned int", "42");
-    assertEqual(NaN, str::deserializePrimitive<unsigned int>("-42"), "deserialize unsigned int", "negative");
-    assertEqual(NaN, str::deserializePrimitive<unsigned int>("forty-two"), "deserialize unsigned int", "invalid");
-    assertEqual(NaN, str::deserializePrimitive<unsigned int>(std::to_string(UINT_MAX + 1L)), "deserialize unsigned int",
-                "overflow");
+    // Test str::deserializePrimitive<unsigned int>()
+    assertEqual(42, str::deserializePrimitive<unsigned int>("42"), "deserialize uint (positive)");
+    assertEqual(NaN, str::deserializePrimitive<unsigned int>("-42"), "deserialize uint (negative)");
+    assertEqual(NaN, str::deserializePrimitive<unsigned int>("forty-two"), "deserialize uint (invalid)");
+    assertEqual(NaN, str::deserializePrimitive<unsigned int>(std::to_string(UINT_MAX + 1UL)),
+                "deserialize uint (overflow)");
 
-    assertEqual("42", str::serializePrimitive(42), "serialize long", "42");
-    assertEqual("-42", str::serializePrimitive(-42), "serialize long", "-42");
+    // Test str::serializePrimitive(long)
+    assertEqual("42", str::serializePrimitive<long>(42), "serialize long (positive)");
+    assertEqual("-42", str::serializePrimitive<long>(-42), "serialize long (negative)");
 
-    assertEqual(42, str::deserializePrimitive<long>("42"), "deserialize long", "42");
-    assertEqual(-42, str::deserializePrimitive<long>("-42"), "deserialize long", "-42");
-    assertEqual(NaN, str::deserializePrimitive<long>("forty-two"), "deserialize long", "invalid");
-    assertEqual(NaN, str::deserializePrimitive<long>(std::to_string(LONG_MIN) + "0"), "deserialize long", "underflow");
-    assertEqual(NaN, str::deserializePrimitive<long>(std::to_string(LONG_MAX) + "0"), "deserialize long", "overflow");
+    // Test str::deserializePrimitive<long>()
+    assertEqual(42, str::deserializePrimitive<long>("42"), "deserialize long (positive)");
+    assertEqual(-42, str::deserializePrimitive<long>("-42"), "deserialize long (negative)");
+    assertEqual(NaN, str::deserializePrimitive<long>("forty-two"), "deserialize long (invalid)");
+    assertEqual(NaN, str::deserializePrimitive<long>("-9999999999999999999"), "deserialize long (underflow)");
+    assertEqual(NaN, str::deserializePrimitive<long>("9999999999999999999"), "deserialize long (overflow)");
 
-    assertEqual("42", str::serializePrimitive(42), "serialize unsigned long", "42");
+    // Test str::serializePrimitive(unsigned long)
+    assertEqual("42", str::serializePrimitive<unsigned long>(42), "serialize ulong (positive)");
 
-    assertEqual(42, str::deserializePrimitive<unsigned long>("42"), "deserialize unsigned long", "42");
-    assertEqual(NaN, str::deserializePrimitive<unsigned long>("-42"), "deserialize unsigned long", "negative");
-    assertEqual(NaN, str::deserializePrimitive<unsigned long>("forty-two"), "deserialize unsigned long", "invalid");
-    assertEqual(NaN, str::deserializePrimitive<unsigned long>(std::to_string(ULONG_MAX) + "0"),
-                "deserialize unsigned long", "overflow");
+    // Test str::deserializePrimitive<unsigned long>()
+    assertEqual(42, str::deserializePrimitive<unsigned long>("42"), "deserialize ulong (positive)");
+    assertEqual(NaN, str::deserializePrimitive<unsigned long>("-42"), "deserialize ulong (negative)");
+    assertEqual(NaN, str::deserializePrimitive<unsigned long>("forty-two"), "deserialize ulong (invalid)");
+    assertEqual(NaN, str::deserializePrimitive<unsigned long>("99999999999999999999"), "deserialize ulong (overflow)");
 
-    assertEqual("3.141000", str::serializePrimitive(3.141), "serialize float", "PI");
-    assertEqual("-3.141000", str::serializePrimitive(-3.141), "serialize float", "-PI");
+    // Test str::serializePrimitive(float)
+    assertEqual("3.141590", str::serializePrimitive<float>(3.14159), "serialize float (positive)");
+    assertEqual("-3.141590", str::serializePrimitive<float>(-3.14159), "serialize float (negative)");
 
-    assert(std::abs(3.141 - str::deserializePrimitive<float>("3.141000").value_or(0)) < 0.0001, "deserialize float",
-           "PI");
-    assert(std::abs(-3.141 - str::deserializePrimitive<float>("-3.141000").value_or(0)) < 0.0001, "deserialize float",
-           "-PI");
-    assertEqual(NaN, str::deserializePrimitive<float>("pi"), "deserialize float", "invalid");
+    // Test str::deserializePrimitive<float>()
+    assert(std::abs(3.14159 - str::deserializePrimitive<float>("3.14159").value_or(0)) < 0.0001,
+           "deserialize float (positive)");
+    assert(std::abs(-3.14159 - str::deserializePrimitive<float>("-3.14159").value_or(0)) < 0.0001,
+           "deserialize float (negative)");
+    assertEqual(NaN, str::deserializePrimitive<float>("forty-two"), "deserialize float (invalid)");
 
-    assertEqual("3.141000", str::serializePrimitive(3.141), "serialize double", "PI");
-    assertEqual("-3.141000", str::serializePrimitive(-3.141), "serialize double", "-PI");
+    // Test str::serializePrimitive(double)
+    assertEqual("3.141590", str::serializePrimitive<double>(3.14159), "serialize double (positive)");
+    assertEqual("-3.141590", str::serializePrimitive<double>(-3.14159), "serialize double (negative)");
 
-    assert(std::abs(3.141 - str::deserializePrimitive<double>("3.141000").value_or(0)) < 0.0001, "deserialize double",
-           "PI");
-    assert(std::abs(-3.141 - str::deserializePrimitive<double>("-3.141000").value_or(0)) < 0.0001, "deserialize double",
-           "-PI");
-    assertEqual(NaN, str::deserializePrimitive<double>("pi"), "deserialize double", "invalid");
+    // Test str::deserializePrimitive<double>()
+    assert(std::abs(3.14159 - str::deserializePrimitive<double>("3.14159").value_or(0)) < 0.0001,
+           "deserialize double (positive)");
+    assert(std::abs(-3.14159 - str::deserializePrimitive<double>("-3.14159").value_or(0)) < 0.0001,
+           "deserialize double (negative)");
+    assertEqual(NaN, str::deserializePrimitive<double>("forty-two"), "deserialize double (invalid)");
 
-    assertEqual("\"Hello, world!\"", str::serializePrimitive<std::string>("Hello, world!"), "serialize string",
-                "Hello, world!");
-    assertEqual("\"&quot;Hi!&quot;&newline;\"", str::serializePrimitive<std::string>("\"Hi!\"\n"), "serialize string",
-                "Escaped characters");
+    // Test str::serializePrimitive(string)
+    assertEqual("\"Hello, world!\"", str::serializePrimitive<std::string>("Hello, world!"),
+                "serialize string (simple)");
+    assertEqual("\"&quot;Hello!&quot;&newline;\"", str::serializePrimitive<std::string>("\"Hello!\"\n"),
+                "serialize string (complex)");
 
-    assertEqual("Hello!", str::deserializePrimitive<std::string>("\"Hello!\""), "deserialize string", "Hello!");
-    assertEqual("\"Hi!\"\n", str::deserializePrimitive<std::string>("\"&quot;Hi!&quot;&newline;\""),
-                "deserialize string", "Escaped characters");
+    // Test str::deserializePrimitive<string>()
+    assertEqual("Hello, world!", str::deserializePrimitive<std::string>("\"Hello, world!\""),
+                "deserialize string (simple)");
+    assertEqual("\"Hello!\"\n", str::deserializePrimitive<std::string>("\"&quot;Hello!&quot;&newline;\""),
+                "deserialize string (complex)");
+    assertEqual(NaN, str::deserializePrimitive<std::string>("123"), "deserialize string (invalid)");
 
-    assertEqual("1", str::serializePrimitive(Enum::DEF), "serialize enum", "def");
+    // Test str::serializePrimitive(Enum)
+    assertEqual("1", str::serializePrimitive<Enum>(Enum::DEF), "serialize Enum (DEF)");
 
-    assertEqual(Enum::XYZ, str::deserializePrimitive<Enum>("2").value_or(Enum::ABC), "deserialize enum", "xyz");
-    assertEqual(NaN, str::deserializePrimitive<Enum>("ABC"), "deserialize enum", "invalid");
-    assertEqual(static_cast<Enum>(4), str::deserializePrimitive<Enum>("4"), "deserialize enum", "out of range");
+    // Test str::deserializePrimitive<Enum>()
+    assertEqual(Enum::DEF, str::deserializePrimitive<Enum>("1"), "deserialize Enum (DEF)");
+    assertEqual(NaN, str::deserializePrimitive<Enum>("ABC"), "deserialize Enum (invalid)");
+    assertEqual(static_cast<Enum>(4), str::deserializePrimitive<Enum>("4"), "deserialize Enum (out-of-range)");
 }
 
 void testParsers() {
     namespace str = serializable::detail::string;
 
+    // Test str::parsePrimitive
     auto primitive = str::parsePrimitive("BOOL my_bool = true");
     if(primitive) {
-        assertEqual("BOOL", primitive->at(0), "parsePrimitive", "Case 1.0");
-        assertEqual("my_bool", primitive->at(1), "parsePrimitive", "Case 1.1");
-        assertEqual("true", primitive->at(2), "parsePrimitive", "Case 1.2");
-    } else assert(false, "parsePrimitive", "Case 1");
+        assertEqual("BOOL", primitive->at(0), "parsePrimitive 1 (type)");
+        assertEqual("my_bool", primitive->at(1), "parsePrimitive 1 (name)");
+        assertEqual("true", primitive->at(2), "parsePrimitive 1 (value)");
+    } else assert(false, "parsePrimitive 1");
 
-    primitive = str::parsePrimitive("STRING username = \"xXThat_GuyXx\"");
+    primitive = str::parsePrimitive("STRING my_string = \"Hello, world!\"");
     if(primitive) {
-        assertEqual("STRING", primitive->at(0), "parsePrimitive", "Case 2.0");
-        assertEqual("username", primitive->at(1), "parsePrimitive", "Case 2.1");
-        assertEqual("\"xXThat_GuyXx\"", primitive->at(2), "parsePrimitive", "Case 2.2");
-    } else assert(false, "parsePrimitive", "Case 2");
+        assertEqual("STRING", primitive->at(0), "parsePrimitive 2 (type)");
+        assertEqual("my_string", primitive->at(1), "parsePrimitive 2 (name)");
+        assertEqual("\"Hello, world!\"", primitive->at(2), "parsePrimitive 2 (value)");
+    } else assert(false, "parsePrimitive 2");
 
-    primitive = str::parsePrimitive("FLOAT pi = 3.141");
+    primitive = str::parsePrimitive("FLOAT my_int = 3.14159");
     if(primitive) {
-        assertEqual("FLOAT", primitive->at(0), "parsePrimitive", "Case 3.0");
-        assertEqual("pi", primitive->at(1), "parsePrimitive", "Case 3.1");
-        assertEqual("3.141", primitive->at(2), "parsePrimitive", "Case 3.2");
-    } else assert(false, "parsePrimitive", "Case 3");
+        assertEqual("FLOAT", primitive->at(0), "parsePrimitive 3 (type)");
+        assertEqual("my_int", primitive->at(1), "parsePrimitive 3 (name)");
+        assertEqual("3.14159", primitive->at(2), "parsePrimitive 3 (value)");
+    } else assert(false, "parsePrimitive 3");
 
-    auto object = str::parseObject("OBJECT<0> root = 1 {\n\t\n}");
+    // Test str::parseObject
+    auto object = str::parseObject("OBJECT<0> root = 1 {}");
     if(object) {
-        assertEqual("0", object->at(0), "parseObject", "Case 1.0");
-        assertEqual("root", object->at(1), "parseObject", "Case 1.1");
-        assertEqual("1", object->at(2), "parseObject", "Case 1.2");
-        assertEqual("\t", object->at(3), "parseObject", "Case 1.3");
-    } else assert(false, "parseObject", "Case 1");
+        assertEqual("0", object->at(0), "parseObject 1 (class)");
+        assertEqual("root", object->at(1), "parseObject 1 (name)");
+        assertEqual("1", object->at(2), "parseObject 1 (address)");
+        assertEqual("", object->at(3), "parseObject 1 (children)");
+    } else assert(false, "parseObject 1");
 
-    object = str::parseObject("OBJECT<0> root = 1 {}");
+    object = str::parseObject("OBJECT<0> root = 1 {\n\t\n}");
     if(object) {
-        assertEqual("0", object->at(0), "parseObject", "Case 2.0");
-        assertEqual("root", object->at(1), "parseObject", "Case 2.1");
-        assertEqual("1", object->at(2), "parseObject", "Case 2.2");
-        assertEqual("", object->at(3), "parseObject", "Case 2.3");
-    } else assert(false, "parseObject", "Case 2");
+        assertEqual("0", object->at(0), "parseObject 2 (class)");
+        assertEqual("root", object->at(1), "parseObject 2 (name)");
+        assertEqual("1", object->at(2), "parseObject 2 (address)");
+        assertEqual("\t", object->at(3), "parseObject 2 (children)");
+    } else assert(false, "parseObject 2");
 
-    object = str::parseObject("OBJECT<3> root = 5 {\n\tINT answer = 42\n\tBOOL valid = true\n}");
+    object = str::parseObject("OBJECT<0> root = 1 {\n\tINT answer = 42\n\tFLOAT PI = 3.14159\n}");
     if(object) {
-        assertEqual("3", object->at(0), "parseObject", "Case 3.0");
-        assertEqual("root", object->at(1), "parseObject", "Case 3.1");
-        assertEqual("5", object->at(2), "parseObject", "Case 3.2");
-        assertEqual("\tINT answer = 42\n\tBOOL valid = true", object->at(3), "parseObject", "Case 3.3");
-    } else assert(false, "parseObject", "Case 3");
+        assertEqual("0", object->at(0), "parseObject 3 (class)");
+        assertEqual("root", object->at(1), "parseObject 3 (name)");
+        assertEqual("1", object->at(2), "parseObject 3 (address)");
+        assertEqual("\tINT answer = 42\n\tFLOAT PI = 3.14159", object->at(3), "parseObject 3 (children)");
+    } else assert(false, "parseObject 3");
 
-    object = str::parseObject("OBJECT<1> root = 1 {\n\tOBJECT<2> sub = 2 {\n\t\tDOUBLE pi = 3.14\n\t}\n}");
+    object = str::parseObject("OBJECT<0> root = 1 {\n\tOBJECT<1> child = 2 {\n\t\tINT answer = 42\n\t}\n}");
     if(object) {
-        assertEqual("1", object->at(0), "parseObject", "Case 4.0");
-        assertEqual("root", object->at(1), "parseObject", "Case 4.1");
-        assertEqual("1", object->at(2), "parseObject", "Case 4.2");
-        assertEqual("\tOBJECT<2> sub = 2 {\n\t\tDOUBLE pi = 3.14\n\t}", object->at(3), "parseObject", "Case 4.3");
-    } else assert(false, "parseObject", "Case 4");
+        assertEqual("0", object->at(0), "parseObject 4 (class)");
+        assertEqual("root", object->at(1), "parseObject 4 (name)");
+        assertEqual("1", object->at(2), "parseObject 4 (address)");
+        assertEqual("\tOBJECT<1> child = 2 {\n\t\tINT answer = 42\n\t}", object->at(3), "parseObject 4 (children)");
+    } else assert(false, "parseObject 4");
 
-    auto pointer = str::parsePointer("PTR<4> my_pointer = 23");
+    // Test str::parsePointer
+    auto pointer = str::parsePointer("PTR<8> my_pointer = 42");
     if(pointer) {
-        assertEqual("4", pointer->at(0), "parsePointer", "Case 1.0");
-        assertEqual("my_pointer", pointer->at(1), "parsePointer", "Case 1.1");
-        assertEqual("23", pointer->at(2), "parsePointer", "Case 1.2");
-    } else assert(false, "parsePointer", "Case 1");
+        assertEqual("8", pointer->at(0), "parsePointer 1 (class)");
+        assertEqual("my_pointer", pointer->at(1), "parsePointer 1 (name)");
+        assertEqual("42", pointer->at(2), "parsePointer 1 (address)");
+    } else assert(false, "parsePointer 1");
 }
 
 // Serial types
 void testSerialPrimitive() {
     using serializable::detail::SerialPrimitive;
 
-    const SerialPrimitive source("INT", "the_answer", "42");
-    assertEqual("INT the_answer = 42", source.get(), "SerialPrimitive", "get");
+    const SerialPrimitive source("INT", "my_int", "42");
+    assertEqual("INT my_int = 42", source.get(), "SerialPrimitive::get()");
 
     SerialPrimitive target;
-    assert(target.set("BOOL my_bool = true"), "SerialPrimitive", "set");
-    assertEqual("BOOL my_bool = true", target.get(), "SerialPrimitive", "set");
-
-    assert(target.set(source.get()), "SerialPrimitive", "transfer");
-    assertEqual(source.get(), target.get(), "SerialPrimitive", "transfer");
+    assert(target.set(source.get()), "SerialPrimitive::set()");
+    assertEqual(source.get(), target.get(), "SerialPrimitive::get()");
 }
 
 void testSerialObject() {
     using serializable::detail::SerialObject;
     using serializable::detail::SerialPrimitive;
 
-    SerialObject source(1, "root", 0, 0);
-    source.append(std::make_unique<SerialPrimitive>("BOOL", "my_bool", "false"));
-    source.append(std::make_unique<SerialPrimitive>("INT", "something", "123"));
-    source.append(std::make_unique<SerialPrimitive>("FLOAT", "pi", "3.141"));
+    SerialObject source(0, "root", 0, 0);
+    source.append(std::make_shared<SerialPrimitive>("INT", "answer", "42"));
+    source.append(std::make_shared<SerialPrimitive>("FLOAT", "PI", "3.14159"));
+    source.append(std::make_shared<SerialPrimitive>("BOOL", "my_bool", "true"));
     {
-        auto pos = std::make_unique<SerialObject>(2, "pos", 0, 0);
-        pos->append(std::make_unique<SerialPrimitive>("INT", "x", "1"));
-        pos->append(std::make_unique<SerialPrimitive>("INT", "y", "4"));
-        source.append(std::move(pos));
+        auto pos = std::make_shared<SerialObject>(1, "pos", 0, 0);
+        pos->append(std::make_shared<SerialPrimitive>("INT", "x", "1"));
+        pos->append(std::make_shared<SerialPrimitive>("INT", "y", "4"));
+        source.append(pos);
     }
 
     SerialObject target;
-    assert(target.set(source.get()), "SerialObject", "set");
+    assert(target.set(source.get()), "SerialObject::set()");
 
-    auto child = target.getChild("my_bool");
-    if(child) assertEqual("BOOL my_bool = false", child.value()->get(), "SerialObject", "my_bool");
-    else assert(false, "SerialObject", "extract my_bool");
+    assertEqual(0U, target.getClass(), "SerialObject::getClass()");
+    assertEqual("root", target.getName(), "SerialObject::getName()");
 
-    child = target.getChild("something");
-    if(child) assertEqual("INT something = 123", child.value()->get(), "SerialObject", "something");
-    else assert(false, "SerialObject", "extract something");
+    auto child = target.getChild("answer");
+    if(child) assertEqual("INT answer = 42", child.value()->get(), "SerialObject::getChild() (answer)");
+    else assert(false, "SerialObject::getChild() (answer)");
 
-    child = target.getChild("pi");
-    if(child) assertEqual("FLOAT pi = 3.141", child.value()->get(), "SerialObject", "pi");
-    else assert(false, "SerialObject", "extract pi");
+    child = target.getChild("PI");
+    if(child) assertEqual("FLOAT PI = 3.14159", child.value()->get(), "SerialObject::getChild() (PI)");
+    else assert(false, "SerialObject::getChild() (PI)");
+
+    child = target.getChild("my_bool");
+    if(child) assertEqual("BOOL my_bool = true", child.value()->get(), "SerialObject::getChild() (my_bool)");
+    else assert(false, "SerialObject::getChild() (my_bool)");
 
     child = target.getChild("pos");
     if(child) {
         auto* pos = child.value()->asObject();
 
         auto sub = pos->getChild("x");
-        if(sub) assertEqual("INT x = 1", sub.value()->get(), "SerialObject", "pos.x");
-        else assert(false, "SerialObject", "extract pos.x");
+        if(sub) assertEqual("INT x = 1", sub.value()->get(), "SerialObject::getChild() (pos.x)");
+        else assert(false, "SerialObject::getChild() (pos.x)");
 
         sub = pos->getChild("y");
-        if(sub) assertEqual("INT y = 4", sub.value()->get(), "SerialObject", "pos.y");
-        else assert(false, "SerialObject", "extract pos.y");
-    } else assert(false, "SerialObject", "extract pos");
+        if(sub) assertEqual("INT y = 4", sub.value()->get(), "SerialObject::getChild() (pos.y)");
+        else assert(false, "SerialObject::getChild() (pos.y)");
+    } else assert(false, "SerialObject::getChild() (pos)");
 }
 
 void testSerialPointer() {
@@ -322,63 +356,61 @@ void testSerialPointer() {
 
     unsigned long data = 123;
     const SerialPointer source(42, "my_pointer", std::bit_cast<void**>(&data));
-    assertEqual("PTR<42> my_pointer = 123", source.get(), "SerialPointer", "get");
+    assertEqual("PTR<42> my_pointer = 123", source.get(), "SerialPointer::get()");
 
     SerialPointer target;
-    assert(target.set("PTR<3> mirror = 5"), "SerialPointer", "set");
-    assertEqual("PTR<3> mirror = 5", target.get(), "SerialPointer", "set");
-
-    assert(target.set(source.get()), "SerialPointer", "transfer");
-    assertEqual(source.get(), target.get(), "SerialPointer", "transfer");
+    assert(target.set(source.get()), "SerialPointer::set()");
+    assertEqual(source.get(), target.get(), "SerialPointer::get()");
 }
 
 // Basic
 struct Basic : public serializable::Serializable {
-    int value;
+    int value = 0;
 
-    explicit Basic(int i) : value(i) {}
+    Basic() = default;
 
-    void exposed() override { expose("i", value); }
+    explicit Basic(int value) : value(value) {}
 
-    unsigned int classID() const override { return 3; }
+    void exposed() override { expose("value", value); }
 };
 
 void testBasic() {
     Basic source(42);
 
-    const auto serialized = source.serialize();
-    assertEqual(Basic::Result::OK, serialized.first, "Basic", "serialize result");
-    assertEqual("OBJECT<3> root = 1 {\n\tINT i = 42\n}", serialized.second, "Basic", "serialize value");
+    const auto serial = source.serialize();
+    assertEqual(Basic::Result::OK, serial.first, "Basic::serialize() (result)");
+    assertEqual("OBJECT<0> root = 1 {\n\tINT value = 42\n}", serial.second, "Basic::serialize() (data)");
 
-    Basic target(0);
-    const auto deserialized = target.deserialize(serialized.second);
-    assertEqual(Basic::Result::OK, deserialized, "Basic", "deserialize result");
-    assertEqual(source.value, target.value, "Basic", "deserialize value");
+    Basic target;
+    assertEqual(Basic::Result::OK, target.deserialize(serial.second), "Basic::deserialize() (result)");
+    assertEqual(source.value, target.value, "Basic::deserialize() (value)");
 }
 
-// All types
+// All Types
 struct AllTypes : public serializable::Serializable {
-    enum class MyEnum { ABC, DEF, XYZ };
+    enum class Enum { ABC, DEF, XYZ };
 
-    bool b;
-    char c;
-    unsigned char uc;
-    short s;
-    unsigned short us;
-    int i;
-    unsigned int ui;
-    long l;
-    unsigned long ul;
-    float f;
-    double d;
+    bool b            = false;
+    char c            = '\0';
+    unsigned char uc  = '\0';
+    short s           = 0;
+    unsigned short us = 0;
+    int i             = 0;
+    unsigned int ui   = 0;
+    long l            = 0;
+    unsigned long ul  = 0;
+    float f           = 0.0F;
+    double d          = 0.0;
     std::string str;
-    MyEnum m;
-    AllTypes* self;
+    Enum e      = Enum::ABC;
+    AllTypes* p = nullptr;
+
+    AllTypes() : p(this){};
 
     AllTypes(bool b, char c, unsigned char uc, short s, unsigned short us, int i, unsigned int ui, long l,
-             unsigned long ul, float f, double d, std::string str, MyEnum m)
-        : b(b), c(c), uc(uc), s(s), us(us), i(i), ui(ui), l(l), ul(ul), f(f), d(d), str(std::move(str)), m(m),
-          self(this) {}
+             unsigned long ul, float f, double d, std::string str, Enum e)
+        : b(b), c(c), uc(uc), s(s), us(us), i(i), ui(ui), l(l), ul(ul), f(f), d(d), str(std::move(str)), e(e), p(this) {
+    }
 
     void exposed() override {
         expose("b", b);
@@ -393,197 +425,206 @@ struct AllTypes : public serializable::Serializable {
         expose("f", f);
         expose("d", d);
         expose("str", str);
-        expose("m", m);
-        expose("self", self);
+        expose("e", e);
+        expose("p", p);
     }
 
-    unsigned int classID() const override { return 5; }
+    unsigned int classID() const override { return 1; }
 };
 
 void testAllTypes() {
-    AllTypes source(true, 'a', 'x', 42, 69, -123, 123, 6502, 12345, 3.141, -1.5, "Hello, world!\n",
-                    AllTypes::MyEnum::DEF);
-    const auto serialized = source.serialize();
-    assertEqual(AllTypes::Result::OK, serialized.first, "All Types", "serialize result");
+    AllTypes source(true, 'a', 'b', 1, 2, 3, 4, 5, 6, 7.0F, 8.0, "Hello World", AllTypes::Enum::XYZ);
+    const auto serial = source.serialize();
+    assertEqual(AllTypes::Result::OK, serial.first, "AllTypes::serialize() (result)");
 
-    AllTypes target(false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", AllTypes::MyEnum::ABC);
-    const auto deserialized = target.deserialize(serialized.second);
-    assertEqual(AllTypes::Result::OK, deserialized, "All Types", "deserialize result");
-    assertEqual(source.b, target.b, "All Types", "deserialize value BOOL");
-    assertEqual(source.c, target.c, "All Types", "deserialize value CHAR");
-    assertEqual(source.uc, target.uc, "All Types", "deserialize value UCHAR");
-    assertEqual(source.s, target.s, "All Types", "deserialize value SHORT");
-    assertEqual(source.us, target.us, "All Types", "deserialize value USHORT");
-    assertEqual(source.i, target.i, "All Types", "deserialize value INT");
-    assertEqual(source.ui, target.ui, "All Types", "deserialize value UINT");
-    assertEqual(source.l, target.l, "All Types", "deserialize value LONG");
-    assertEqual(source.ul, target.ul, "All Types", "deserialize value ULONG");
-    assertEqual(source.f, target.f, "All Types", "deserialize value FLOAT");
-    assertEqual(source.d, target.d, "All Types", "deserialize value DOUBLE");
-    assertEqual(source.str, target.str, "All Types", "deserialize value STRING");
-    assertEqual(source.m, target.m, "All Types", "deserialize value ENUM");
-    assertEqual(&target, target.self, "All Types", "deserialize value PTR");
+    AllTypes target;
+    assertEqual(AllTypes::Result::OK, target.deserialize(serial.second), "AllTypes::deserialize() (result)");
+    assertEqual(source.b, target.b, "AllTypes::deserialize() (b)");
+    assertEqual(source.c, target.c, "AllTypes::deserialize() (c)");
+    assertEqual(source.uc, target.uc, "AllTypes::deserialize() (uc)");
+    assertEqual(source.s, target.s, "AllTypes::deserialize() (s)");
+    assertEqual(source.us, target.us, "AllTypes::deserialize() (us)");
+    assertEqual(source.i, target.i, "AllTypes::deserialize() (i)");
+    assertEqual(source.ui, target.ui, "AllTypes::deserialize() (ui)");
+    assertEqual(source.l, target.l, "AllTypes::deserialize() (l)");
+    assertEqual(source.ul, target.ul, "AllTypes::deserialize() (ul)");
+    assertEqual(source.f, target.f, "AllTypes::deserialize() (f)");
+    assertEqual(source.d, target.d, "AllTypes::deserialize() (d)");
+    assertEqual(source.str, target.str, "AllTypes::deserialize() (str)");
+    assertEqual(source.e, target.e, "AllTypes::deserialize() (e)");
+    assertEqual(&target, target.p, "AllTypes::deserialize() (p)");
 }
 
 // Nested
 struct Nested : public serializable::Serializable {
-    struct Position : public serializable::Serializable {
-        Position() = default;
+    Basic primary, secondary;
 
-        Position(int x, int y) : x(x), y(y) {}
+    Nested() = default;
 
-        void exposed() override {
-            expose("x", x);
-            expose("y", y);
-        }
+    explicit Nested(int value) : primary(value), secondary(value) {}
 
-        unsigned int classID() const override { return 2; }
-
-        int x{}, y{};
-    };
-
-    struct Player : public serializable::Serializable {
-        Player() = default;
-
-        Player(const Position& pos, int level) : pos(pos), level(level) {}
-
-        void exposed() override {
-            expose("Position", pos);
-            expose("level", level);
-        }
-
-        unsigned int classID() const override { return 3; }
-
-        Position pos;
-        int level{};
-    };
+    Nested(int primary, int secondary) : primary(primary), secondary(secondary) {}
 
     void exposed() override {
-        expose("pos", pos);
-        expose("prevPos", prevPos);
-        expose("player", player);
+        expose("primary", primary);
+        expose("secondary", secondary);
     }
-
-    unsigned int classID() const override { return 1; }
-
-    Position pos, prevPos;
-    Player player;
 };
 
 void testNested() {
-    Nested source;
-    source.pos          = { 12, 34 };
-    source.prevPos      = { 42, 69 };
-    source.player.pos   = { 1, 2 };
-    source.player.level = 2;
+    Nested source(42, 24);
 
-    const auto serialized = source.serialize();
-    assertEqual(Nested::Result::OK, serialized.first, "Nested", "serialize result");
+    const auto serial = source.serialize();
+    assertEqual(Nested::Result::OK, serial.first, "Nested::serialize() (result)");
 
     Nested target;
-    const auto deserialized = target.deserialize(serialized.second);
-    assertEqual(Nested::Result::OK, deserialized, "Nested", "deserialize result");
-    assertEqual(source.pos.x, target.pos.x, "Nested", "deserialize result pos.x");
-    assertEqual(source.pos.y, target.pos.y, "Nested", "deserialize result pos.y");
-    assertEqual(source.prevPos.x, target.prevPos.x, "Nested", "deserialize result prevPos.x");
-    assertEqual(source.prevPos.y, target.prevPos.y, "Nested", "deserialize result prevPos.y");
-    assertEqual(source.player.pos.x, target.player.pos.x, "Nested", "deserialize result player.pos.x");
-    assertEqual(source.player.pos.y, target.player.pos.y, "Nested", "deserialize result player.pos.y");
-    assertEqual(source.player.level, target.player.level, "Nested", "deserialize result player.level");
+    assertEqual(Nested::Result::OK, target.deserialize(serial.second), "Nested::deserialize() (result)");
+    assertEqual(source.primary.value, target.primary.value, "Nested::deserialize() (primary)");
+    assertEqual(source.secondary.value, target.secondary.value, "Nested::deserialize() (secondary)");
 }
 
 // Files
-struct Files : public serializable::Serializable {
-    int value{};
-
-    Files() = default;
-
-    void exposed() override { expose("value", value); }
-
-    unsigned int classID() const override { return 42; }
-};
-
 void testFiles() {
-    Files source;
-    source.value = 42;
+    Basic source(42);
+    assertEqual(Basic::Result::OK, source.save("test.txt"), "Basic::save()");
+    assertEqual(Basic::Result::OK, source.save("test.txt"), "Basic::save() (overwrite)");
 
-    auto result = source.save("save.txt");
-    assertEqual(Files::Result::OK, result, "Files", "save");
+    Basic target;
+    assertEqual(Basic::Result::OK, target.load("test.txt"), "Basic::load()");
+    assertEqual(source.value, target.value, "Basic::load() (value)");
 
-    Files target;
-    result = target.load("save.txt");
-    assertEqual(Files::Result::OK, result, "Files", "load");
-    assertEqual(source.value, target.value, "Files", "load data");
-
-    result = target.load("not-there.txt");
-    assertEqual(Files::Result::FILE, result, "Files", "load inexistent file");
+    assertEqual(Basic::Result::FILE, target.load("non-existent.txt"), "Basic::load() (non-existent)");
 }
 
 // Errors
 struct Errors : public serializable::Serializable {
     std::string name, value;
 
+    Errors() = default;
+
     Errors(std::string name, std::string value) : name(std::move(name)), value(std::move(value)) {}
 
     void exposed() override { expose(name, value); }
 
-    unsigned int classID() const override { return 10; }
-
-    void set(const std::string& name, const std::string& value) {
-        this->name  = name;
-        this->value = value;
-    }
+    unsigned int classID() const override { return 2; }
 };
 
 void testErrors() {
-    Errors target("answer", "42");
+    Errors errors("name", "value");
 
-    auto deserialize = target.deserialize("OBJECT<0> root = 0 {\n\tSTRING answer = \"42\"\n}");
-    assertEqual(Errors::Result::TYPECHECK, deserialize, "Errors", "wrong class id");
+    // Wrong class id
+    auto res = errors.deserialize("OBJECT<0> root = 1 {\n\tSTRING name = \"value\"\n}");
+    assertEqual(Errors::Result::TYPECHECK, res, "error (wrong class id)");
 
-    deserialize = target.deserialize("OBJECT<10> root = 0 {}");
-    assertEqual(Errors::Result::INTEGRITY, deserialize, "Errors", "missing values");
+    // Missing value
+    res = errors.deserialize("OBJECT<2> root = 1 {\n\t\n}");
+    assertEqual(Errors::Result::INTEGRITY, res, "error (missing value)");
 
-    deserialize = target.deserialize("OBJECT<10> root = 0 {\n\tINT answer = 42\n}");
-    assertEqual(Errors::Result::TYPECHECK, deserialize, "Errors", "wrong primitive type");
+    // Too many children
+    res = errors.deserialize("OBJECT<2> root = 1 {\n\tSTRING name = \"value\"\n\tSTRING value = \"value\"\n}");
+    assertEqual(Errors::Result::OK, res, "error (too many children)");
 
-    deserialize = target.deserialize("");
-    assertEqual(Errors::Result::STRUCTURE, deserialize, "Errors", "empty string");
+    // Wrong type
+    res = errors.deserialize("OBJECT<2> root = 1 {\n\tINT name = 1\n}");
+    assertEqual(Errors::Result::TYPECHECK, res, "error (wrong type)");
 
-    deserialize = target.deserialize(R"({"answer": "42"})");
-    assertEqual(Errors::Result::STRUCTURE, deserialize, "Errors", "json string");
+    // Empty string
+    res = errors.deserialize("");
+    assertEqual(Errors::Result::STRUCTURE, res, "error (empty string)");
 
-    deserialize = target.deserialize("answer := 42");
-    assertEqual(Errors::Result::STRUCTURE, deserialize, "Errors", "unformatted");
+    // JSON format
+    res = errors.deserialize("{\n\t\"name\": \"value\"\n}");
+    assertEqual(Errors::Result::STRUCTURE, res, "error (JSON format)");
 
-    target.name    = "with space";
-    auto serialize = target.serialize();
-    assertEqual(Errors::Result::OK, serialize.first, "Errors", "name with space");
-    assertEqual("OBJECT<10> root = 1 {\n\tSTRING " + target.name + " = \"42\"\n}", serialize.second, "Errors",
-                "name with space value");
-    assertEqual(Errors::Result::OK, target.deserialize(serialize.second), "Errors", "name with space deserialize");
+    // Wrong value type
+    res = errors.deserialize("OBJECT<2> root = 1 {\n\tSTRING name = 123\n}");
+    assertEqual(Errors::Result::TYPECHECK, res, "error (wrong value type)");
 
-    target.name = "some (more) \"funny\" stuff";
-    serialize   = target.serialize();
-    assertEqual(Errors::Result::OK, serialize.first, "Errors", "name with quotes and brackets");
-    assertEqual("OBJECT<10> root = 1 {\n\tSTRING " + target.name + " = \"42\"\n}", serialize.second, "Errors",
-                "name with quotes and brackets value");
-    assertEqual(Errors::Result::OK, target.deserialize(serialize.second), "Errors",
-                "name with quotes and brackets deserialize");
+    // Name with space
+    errors.name  = "name with space";
+    errors.value = "value";
+    auto serial  = errors.serialize();
+    assertEqual(Errors::Result::OK, serial.first, "error (name with space)");
+    assertEqual("OBJECT<2> root = 1 {\n\tSTRING " + errors.name + " = \"value\"\n}", serial.second,
+                "error (name with space)");
+    assertEqual(Errors::Result::OK, errors.deserialize(serial.second), "error (name with space)");
 
-    target.name = "INT i";
-    serialize   = target.serialize();
-    assertEqual(Errors::Result::OK, serialize.first, "Errors", "primitive type name");
-    assertEqual("OBJECT<10> root = 1 {\n\tSTRING " + target.name + " = \"42\"\n}", serialize.second, "Errors",
-                "primitive type name value");
-    assertEqual(Errors::Result::OK, target.deserialize(serialize.second), "Errors", "primitive type name deserialize");
+    // Name with other funny characters
+    errors.name = "name with other funny characters: !@#$%^&*()_+|:\"<>?`-[]\\;',./";
+    serial      = errors.serialize();
+    assertEqual(Errors::Result::OK, serial.first, "error (name with other funny characters)");
+    assertEqual("OBJECT<2> root = 1 {\n\tSTRING " + errors.name + " = \"value\"\n}", serial.second,
+                "error (name with other funny characters)");
+    assertEqual(Errors::Result::OK, errors.deserialize(serial.second), "error (name with other funny characters)");
 
-    target.name = "";
-    serialize   = target.serialize();
-    assertEqual(Errors::Result::OK, serialize.first, "Errors", "no name");
-    assertEqual("OBJECT<10> root = 1 {\n\tSTRING " + target.name + " = \"42\"\n}", serialize.second, "Errors",
-                "no name value");
-    assertEqual(Errors::Result::OK, target.deserialize(serialize.second), "Errors", "no name deserialize");
+    // Name starting with primitive identifier
+    errors.name = "INT name";
+    serial      = errors.serialize();
+    assertEqual(Errors::Result::OK, serial.first, "error (name starting with primitive identifier)");
+    assertEqual("OBJECT<2> root = 1 {\n\tSTRING " + errors.name + " = \"value\"\n}", serial.second,
+                "error (name starting with primitive identifier)");
+    assertEqual(Errors::Result::OK, errors.deserialize(serial.second),
+                "error (name starting with primitive identifier)");
+
+    // No name
+    errors.name = "";
+    serial      = errors.serialize();
+    assertEqual(Errors::Result::OK, serial.first, "error (no name)");
+    assertEqual("OBJECT<2> root = 1 {\n\tSTRING " + errors.name + " = \"value\"\n}", serial.second, "error (no name)");
+    assertEqual(Errors::Result::OK, errors.deserialize(serial.second), "error (no name)");
+}
+
+// Stress
+struct Stress : public serializable::Serializable {
+    template <serializable::detail::SerializablePrimitive T> struct Position : public serializable::Serializable {
+        T x{}, y{}, z{};
+
+        Position() = default;
+
+        Position(T x, T y, T z) : x(x), y(y), z(z) {}
+
+        void exposed() override {
+            expose("x", x);
+            expose("y", y);
+            expose("z", z);
+        }
+
+        unsigned int classID() const override {
+            unsigned int sum = 0;
+            const char* type = serializable::detail::string::TypeToString<T>;
+            for(char c = *type; c != 0; c = *++type) sum += c % 10; // NOLINT(*-pointer-arithmetic)
+            return sum;
+        }
+    };
+
+    Position<double> pos{ 3.141, 2.718, 0 }, prevPos{ 3.141, 2.312, 0 };
+    Position<int> target{ 10, 10, 0 }, camp{ 0, 0, 0 }, closestEnemy{ 0, 5, 0 };
+
+    void exposed() override {
+        expose("pos", pos);
+        expose("prev pos", prevPos);
+        expose("target", target);
+        expose("camp", camp);
+        expose("closest enemy", closestEnemy);
+    }
+
+    unsigned int classID() const override { return 1; }
+};
+
+void stressTest() {
+    Stress stress;
+    const auto start = std::chrono::high_resolution_clock::now();
+
+    for(unsigned int i = 0; i < 10000; i++) {
+        const auto result = stress.serialize();
+        if(result.first != Stress::Result::OK || stress.deserialize(result.second) != Stress::Result::OK) {
+            std::cout << "Stress test failed at iteration " << i << ".\n";
+            return;
+        }
+    }
+
+    const double time = static_cast<double>((std::chrono::high_resolution_clock::now() - start).count()) / 1e9;
+    std::cout << "Stress test completed in " << std::fixed << std::setprecision(3) << time << " seconds.\n";
 }
 
 // NOLINTEND(*-non-private-*)
@@ -603,7 +644,8 @@ int main() {
 
     testFiles();
     testErrors();
+    // stressTest();
 
-    std::cout << "Test finished\n";
+    std::cout << "All tests completed.\n";
     return 0;
 }
