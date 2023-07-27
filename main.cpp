@@ -236,11 +236,15 @@ void testErrorDetection() {
     assert(simple.deserialize("OBJECT ROOT = 0 (42) {\n\tINT i = NaN\n}") == Result::STRUCTURE,
            "Error Detection: STRUCTURE (4)");
     assert(simple.deserialize("OBJECT ROOT = 0 (42) {}") == Result::STRUCTURE, "Error Detection: Structure (5)");
+    assert(simple.deserialize("OBJECT ROOT = 0 (42) {\n\tINT i = 1\n}\nExtra data") == Result::STRUCTURE,
+           "Error Detection: Structure (6)");
 
     assert(simple.deserialize("OBJECT ROOT = 0 (42) {\n\tINT i = 4294967296\n}") == Result::TYPECHECK,
            "Error Detection: TYPECHECK (1)");
     assert(simple.deserialize("OBJECT ROOT = 0 (42) {\n\tUINT i = 123\n}") == Result::TYPECHECK,
            "Error Detection: TYPECHECK (2)");
+    assert(simple.deserialize("OBJECT ROOT = 0 (0) {\n\tUINT i = 123\n}") == Result::TYPECHECK,
+           "Error Detection: TYPECHECK (3)");
 
     assert(simple.deserialize("OBJECT ROOT = 0 (42) {\n\tUINT ui = 123\n}") == Result::INTEGRITY,
            "Error Detection: INTEGRITY (1)");
@@ -318,14 +322,14 @@ void testNames() {
     }
     {
         named.i               = 42;
-        named.name            = "containing \"delimiters\"";
+        named.name            = "{containing} \"delimiters\"";
         auto [result, serial] = named.serialize();
-        assertOk(result, "Named: Serialize containing \"delimiters\"");
+        assertOk(result, "Named: Serialize {containing} \"delimiters\"");
 
         named.i = 0;
         result  = named.deserialize(serial);
-        assertOk(result, "Named: Deserialize containing \"delimiters\"");
-        assert(named.i == 42, "Named: Check containing \"delimiters\" (i)");
+        assertOk(result, "Named: Deserialize {containing} \"delimiters\"");
+        assert(named.i == 42, "Named: Check {containing} \"delimiters\" (i)");
     }
     {
         named.i               = 42;

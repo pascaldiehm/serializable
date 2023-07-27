@@ -8,6 +8,7 @@
 #include <exception>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
 #include <list>
 #include <optional>
 #include <sstream>
@@ -71,6 +72,9 @@ inline std::string replaceAll(const std::string& str, const std::string& from, c
         pos += from.length();
     }
 
+    // Return original data if no replacement required
+    if(matches == 0) return str;
+
     // Generate new string
     std::string replaced;
     replaced.reserve(str.size() + matches * (to.size() - from.size()));
@@ -88,35 +92,45 @@ inline std::string replaceAll(const std::string& str, const std::string& from, c
     return replaced;
 }
 
+inline std::string createString(const std::initializer_list<std::string>& list) {
+    // Calculate size
+    std::size_t size = 0;
+    for(const auto& s : list) size += s.size();
+
+    // Create string
+    std::string str;
+    str.reserve(size);
+    for(const auto& s : list) str.append(s);
+    return str;
+}
+
+inline void appendString(std::string& str, const std::initializer_list<std::string>& list) {
+    // Calculate size
+    std::size_t size = str.size();
+    for(const auto& s : list) size += s.size();
+
+    // Extend string
+    str.reserve(size);
+    for(const auto& s : list) str.append(s);
+}
+
 inline std::string Serialized::serialize() const {
     // Construct object
     if(type == "OBJECT") {
-        std::string data = std::string("OBJECT ")
-                               .append(name)
-                               .append(" = ")
-                               .append(std::to_string(address))
-                               .append(" (")
-                               .append(std::to_string(classId))
-                               .append(") {\n");
+        std::string data =
+            createString({"OBJECT ", name, " = ", std::to_string(address), " (", std::to_string(classId), ") {\n"});
 
         for(const auto& [_, child] : children)
-            data.append(replaceAll(child.serialize(), "\n", "\n\t").insert(0, "\t").append("\n"));
+            appendString(data, {"\t", replaceAll(child.serialize(), "\n", "\n\t"), "\n"});
 
         return data.append("}");
     }
 
     // Construct primitive value
-    if(type != "PTR") return std::string(type).append(" ").append(name).append(" = ").append(value);
+    if(type != "PTR") return createString({type, " ", name, " = ", value});
 
     // Construct pointer value
-    return std::string(type)
-        .append(" ")
-        .append(name)
-        .append(" = ")
-        .append(std::to_string(address))
-        .append(" (")
-        .append(std::to_string(classId))
-        .append(")");
+    return createString({type, " ", name, " = ", std::to_string(address), " (", std::to_string(classId), ")"});
 }
 
 inline void Serialized::deserialize(const std::string& data) {
@@ -218,7 +232,7 @@ inline bool Serialized::checkType(const std::string& type, Serializer<T> seriali
 
     // Try to deserialize and check consistency
     try {
-        T t = deserializer(value);
+        const T t = deserializer(value);
         return value == serializer(t);
     } catch(std::exception& exception) { return false; }
 }
@@ -239,9 +253,9 @@ inline std::vector<std::string> Serialized::parseChildrenData(const std::string&
     std::vector<std::string> children;
 
     // Strip data
-    std::string data = replaceAll(object, "\n\t", "\n");
-    if(data == "{\n}") return children;      // Base case: Empty object
-    data.erase(0, 2).erase(data.size() - 2); // Remove brackets and newline on both sides
+    std::string data = replaceAll(object, "\n\t", "\n"); // Remove one level of indentation
+    if(data == "{\n}") return children;                  // Base case: Empty object
+    data.erase(0, 2).erase(data.size() - 2);             // Remove brackets and newline on both sides
 
     // Parse lines
     std::size_t pos = 0;
@@ -251,7 +265,7 @@ inline std::vector<std::string> Serialized::parseChildrenData(const std::string&
         const std::string line = data.substr(pos, end - pos);
 
         // If line starts with tab or bracket, add to last child, otherwise create new child
-        if(line.starts_with('\t') || line.starts_with('}')) children.back().append("\n").append(line);
+        if(line.starts_with('\t') || line.starts_with('}')) appendString(children.back(), {"\n", line});
         else children.push_back(line);
 
         // Advance pos
@@ -264,24 +278,22 @@ inline std::vector<std::string> Serialized::parseChildrenData(const std::string&
 
 namespace check {
 inline std::string getType(const std::string& str) {
+    if(str.starts_with("U")) return getType(str.substr(1)) == "SIGNED" ? "UNSIGNED" : "INVALID";
+
     if(str == "CHAR") return "SIGNED";
     if(str == "SHORT") return "SIGNED";
     if(str == "INT") return "SIGNED";
     if(str == "LONG") return "SIGNED";
-    if(str == "UCHAR") return "UNSIGNED";
-    if(str == "USHORT") return "UNSIGNED";
-    if(str == "UINT") return "UNSIGNED";
-    if(str == "ULONG") return "UNSIGNED";
     if(str == "ENUM") return "UNSIGNED";
     if(str == "FLOAT") return "FLOATING";
     if(str == "DOUBLE") return "FLOATING";
+
     return "INVALID";
 }
 
 inline bool isName(const std::string& str) {
-    return !str.empty() && !std::any_of(str.begin(), str.end(), [](char c) {
-        return c == '\n' || c == '=' || c == '(' || c == ')' || c == '{' || c == '}';
-    });
+    return !str.empty() &&
+           !std::any_of(str.begin(), str.end(), [](char c) { return c == '\n' || c == '=' || c == '(' || c == ')'; });
 }
 
 inline bool isBool(const std::string& str) { return str == "true" || str == "false"; }
@@ -344,9 +356,6 @@ inline bool matchBoolean(const std::string& str) { // REGEX: BOOL .+ = (true|fal
 }
 
 inline bool matchSigned(const std::string& str) { // REGEX: (CHAR|SHORT|INT|LONG) .+ = -?\d+
-    if(!str.starts_with("CHAR") && !str.starts_with("SHORT") && !str.starts_with("INT") && !str.starts_with("LONG"))
-        return false;
-
     const std::size_t space  = str.find(' ');
     const std::size_t equals = str.find('=');
 
@@ -485,7 +494,7 @@ template <typename T, std::size_t size> class Array : public Serializable, publi
         if(length != size) return;
 
         // Expose elements
-        for(std::size_t i = 0; i < size; i++) expose(std::to_string(i).c_str(), this->at(i));
+        for(std::size_t i = 0; i < size; i++) expose(std::to_string(i), this->at(i));
     }
 
     unsigned int classID() const override { return 1; }
@@ -500,7 +509,7 @@ template <typename T> class Vector : public Serializable, public std::vector<T> 
         this->resize(length);
 
         // Expose elements
-        for(std::size_t i = 0; i < length; i++) expose(std::to_string(i).c_str(), this->at(i));
+        for(std::size_t i = 0; i < length; i++) expose(std::to_string(i), this->at(i));
     }
 
     unsigned int classID() const override { return 2; }
@@ -516,7 +525,7 @@ template <typename T> class List : public Serializable, public std::list<T> {
 
         // Expose elements
         std::size_t index = 0;
-        for(auto it = this->begin(); it != this->end(); it++) expose(std::to_string(index++).c_str(), *it);
+        for(auto it = this->begin(); it != this->end(); it++) expose(std::to_string(index++), *it);
     }
 
     unsigned int classID() const override { return 3; }
@@ -541,7 +550,7 @@ inline std::pair<Serializable::Result, std::string> Serializable::serialize() {
     action = Action::IDLE;
 
     // Replace physical addresses with virtual addresses
-    if(!serialized.setAddresses(addressTable)) result = Result::POINTER;
+    if(result == Result::OK && !serialized.setAddresses(addressTable)) result = Result::POINTER;
     addressTable = nullptr;
 
     // Return result and serialized data
@@ -557,18 +566,19 @@ inline Serializable::Result Serializable::check(const std::string& data) { // NO
 
     // Parse lines
     int depth = 0;
-    int ends  = 0;
     for(auto& line : lines) {
         // Check if line is end of object
         if(depth > 0 && line == std::string(depth - 1, '\t').append("}")) {
-            // Decrease depth and end if root object closed
-            if(--depth == 0) ends++;
+            // Decrease depth and finish if root object closed and EOF
+            if(--depth == 0) return &line == &lines.back() ? Result::OK : Result::STRUCTURE;
             continue;
         }
 
         // Check and remove tabs
-        if(!line.starts_with(std::string(depth, '\t'))) return Result::STRUCTURE;
-        line.erase(0, depth);
+        if(depth > 0) {
+            if(!line.starts_with(std::string(depth, '\t'))) return Result::STRUCTURE;
+            line.erase(0, depth);
+        }
 
         // Parse objects
         if(line.starts_with("OBJECT")) {
@@ -578,19 +588,20 @@ inline Serializable::Result Serializable::check(const std::string& data) { // NO
         }
 
         // Parse primitive types
-        if(detail::check::matchBoolean(line)) continue;
+        if(line.starts_with("BOOL") && detail::check::matchBoolean(line)) continue;
+        if(line.starts_with("U") && detail::check::matchUnsigned(line)) continue;
+        if(line.starts_with("ENUM") && detail::check::matchUnsigned(line)) continue;
+        if(line.starts_with("STRING") && detail::check::matchString(line)) continue;
+        if(line.starts_with("PTR") && detail::check::matchPointer(line)) continue;
         if(detail::check::matchSigned(line)) continue;
-        if(detail::check::matchUnsigned(line)) continue;
         if(detail::check::matchFloating(line)) continue;
-        if(detail::check::matchString(line)) continue;
-        if(detail::check::matchPointer(line)) continue;
 
         // Not a valid type
         return Result::STRUCTURE;
     }
 
-    // Expect exactly one top level end
-    return ends == 1 ? Result::OK : Result::STRUCTURE;
+    // Ending here means root object wasn't closed
+    return Result::STRUCTURE;
 }
 
 inline Serializable::Result Serializable::deserialize(const std::string& data) {
@@ -600,6 +611,9 @@ inline Serializable::Result Serializable::deserialize(const std::string& data) {
 
     // Setup serialized data
     serialized.deserialize(data);
+
+    // Check for root object type
+    if(!serialized.isObject(classID())) return Result::TYPECHECK;
 
     // Create address maps
     detail::AddressMap addresses;
@@ -618,9 +632,6 @@ inline Serializable::Result Serializable::deserialize(const std::string& data) {
     result = Result::OK;
     exposed();
     action = Action::IDLE;
-
-    // Check for root object type
-    if(!serialized.isObject(classID())) result = Result::TYPECHECK;
 
     // Apply addresses (skip if error state)
     if(result == Result::OK)
@@ -761,7 +772,7 @@ inline void Serializable::expose(const std::string& name, std::string& value) {
     static detail::Serializer<std::string> S = [](const auto& val) {
         std::string safe = detail::replaceAll(val, "\"", "&quot;");
         safe             = detail::replaceAll(safe, "\n", "&newline;");
-        return safe.insert(0, "\"").append("\"");
+        return detail::createString({"\"", safe, "\""});
     };
 
     static detail::Serializer<std::string> D = [](const auto& val) {
@@ -805,7 +816,7 @@ inline void Serializable::expose(const std::string& name, Serializable& value) {
     }
 
     case Action::DESERIALIZE: {
-        std::optional<detail::Serialized> child = serialized.getChild(name);
+        const std::optional<detail::Serialized> child = serialized.getChild(name);
         if(!child) result = Result::INTEGRITY;
         else if(!child->isObject(value.classID())) result = Result::TYPECHECK;
         else {
@@ -852,7 +863,7 @@ template <detail::SerializableChild S> inline void Serializable::expose(const st
     }
 
     case Action::DESERIALIZE: {
-        std::optional<detail::Serialized> pointer = serialized.getChild(name);
+        const std::optional<detail::Serialized> pointer = serialized.getChild(name);
         if(!pointer) result = Result::INTEGRITY;
         else if(!pointer->isPointer(value->classID())) result = Result::TYPECHECK;
         else {
@@ -881,7 +892,7 @@ inline void Serializable::expose(const std::string& type, const std::string& nam
     }
 
     case Action::DESERIALIZE: {
-        std::optional<detail::Serialized> primitive = serialized.getChild(name);
+        const std::optional<detail::Serialized> primitive = serialized.getChild(name);
         if(!primitive) result = Result::INTEGRITY;
         else if(!primitive->checkType(type, serializer, deserializer)) result = Result::TYPECHECK;
         else value = primitive->getValue(deserializer);
