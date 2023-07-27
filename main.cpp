@@ -453,6 +453,14 @@ void testAllTypes() {
     assertEqual(source.str, target.str, "AllTypes::deserialize() (str)");
     assertEqual(source.e, target.e, "AllTypes::deserialize() (e)");
     assertEqual(&target, target.p, "AllTypes::deserialize() (p)");
+
+    // Serialize nullptr
+    source.p = nullptr;
+    assertEqual(AllTypes::Result::POINTER, source.serialize().first, "AllTypes::serialize() (nullptr)");
+
+    // Deserialize invalid pointer
+    const auto tampered = serializable::detail::string::replaceAll(serial.second, "PTR<1> p = 1", "PTR<1> p = 42");
+    assertEqual(AllTypes::Result::POINTER, target.deserialize(tampered), "AllTypes::deserialize() (invalid pointer)");
 }
 
 // Nested
