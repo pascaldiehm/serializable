@@ -414,14 +414,18 @@ struct AllTypes : public serializable::Serializable {
     std::vector<int> vec{};
     std::list<int> list{};
     std::deque<int> deque{};
+    std::map<std::string, int> map{};
+    std::unordered_map<std::string, int> umap{};
 
     AllTypes() : p(this){};
 
     AllTypes(bool b, char c, unsigned char uc, short s, unsigned short us, int i, unsigned int ui, long l,
              unsigned long ul, float f, double d, std::string str, Enum e, std::array<int, 2> arr, std::vector<int> vec,
-             std::list<int> list, std::deque<int> deque)
+             std::list<int> list, std::deque<int> deque, std::map<std::string, int> map,
+             std::unordered_map<std::string, int> umap)
         : b(b), c(c), uc(uc), s(s), us(us), i(i), ui(ui), l(l), ul(ul), f(f), d(d), str(std::move(str)), e(e), p(this),
-          arr(arr), vec(std::move(vec)), list(std::move(list)), deque(std::move(deque)) {}
+          arr(arr), vec(std::move(vec)), list(std::move(list)), deque(std::move(deque)), map(std::move(map)),
+          umap(std::move(umap)) {}
 
     void exposed() override {
         expose("b", b);
@@ -442,14 +446,31 @@ struct AllTypes : public serializable::Serializable {
         expose("vec", vec);
         expose("list", list);
         expose("deque", deque);
+        expose("map", map);
+        expose("umap", umap);
     }
 
     [[nodiscard]] unsigned int classID() const override { return 1; }
 };
 
 void testAllTypes() {
-    AllTypes source(true, 'a', 'b', 1, 2, 3, 4, 5, 6, 7.0F, 8.0, "Hello World", AllTypes::Enum::XYZ, { 9, 10 },
-                    { 11, 12 }, { 13, 14 }, { 15, 16 });
+    const std::array<int, 2> arr = { 1, 2 };
+    const std::vector<int> vec   = { 3, 4 };
+    const std::list<int> list    = { 5, 6 };
+    const std::deque<int> deque  = { 7, 8 };
+
+    const std::map<std::string, int> map = {
+        {"a", 1},
+        {"b", 2}
+    };
+
+    const std::unordered_map<std::string, int> umap = {
+        {"c", 3},
+        {"d", 4}
+    };
+
+    AllTypes source(true, 'a', 'b', 1, 2, 3, 4, 5, 6, 7.0F, 8.0, "Hello World", AllTypes::Enum::XYZ, arr, vec, list,
+                    deque, map, umap);
     const auto serial = source.serialize();
     assertEqual(AllTypes::Result::OK, serial.first, "AllTypes::serialize() (result)");
 
@@ -473,6 +494,8 @@ void testAllTypes() {
     assertEqual(source.vec, target.vec, "AllTypes::deserialize() (vec)");
     assertEqual(source.list, target.list, "AllTypes::deserialize() (list)");
     assertEqual(source.deque, target.deque, "AllTypes::deserialize() (deque)");
+    assertEqual(source.map, target.map, "AllTypes::deserialize() (map)");
+    assertEqual(source.umap, target.umap, "AllTypes::deserialize() (umap)");
 
     // Serialize nullptr
     source.p = nullptr;

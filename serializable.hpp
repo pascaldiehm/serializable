@@ -10,6 +10,7 @@
 #include <fstream>
 #include <iterator>
 #include <list>
+#include <map>
 #include <memory>
 #include <optional>
 #include <sstream>
@@ -184,18 +185,24 @@ template <typename T> concept SerializableContainerType = SerializablePrimitive<
                                                           SerializableObject<std::remove_pointer_t<T>> ||
                                                           SerializableContainerHelper<T>::value;
 
-template <SerializableContainerType T> struct SerializableContainerHelper<std::vector<T>> : std::true_type {};
+template <SerializableContainerType C> struct SerializableContainerHelper<std::vector<C>> : std::true_type {};
 
-template <SerializableContainerType T, std::size_t N>
-struct SerializableContainerHelper<std::array<T, N>> : std::true_type {};
+template <SerializableContainerType C, std::size_t N>
+struct SerializableContainerHelper<std::array<C, N>> : std::true_type {};
 
-template <SerializableContainerType T> struct SerializableContainerHelper<std::list<T>> : std::true_type {};
+template <SerializableContainerType C> struct SerializableContainerHelper<std::list<C>> : std::true_type {};
 
-template <SerializableContainerType T> struct SerializableContainerHelper<std::deque<T>> : std::true_type {};
+template <SerializableContainerType C> struct SerializableContainerHelper<std::deque<C>> : std::true_type {};
+
+template <SerializablePrimitive P, SerializableContainerType C>
+struct SerializableContainerHelper<std::map<P, C>> : std::true_type {};
+
+template <SerializablePrimitive P, SerializableContainerType C>
+struct SerializableContainerHelper<std::unordered_map<P, C>> : std::true_type {};
 
 template <typename T> concept SerializableContainer = SerializableContainerHelper<T>::value;
 
-template <SerializableContainer S> class SerialContainer;
+template <SerializableContainer C> class SerialContainer;
 } // namespace detail
 
 class Serializable {
@@ -220,10 +227,10 @@ class Serializable {
     virtual void exposed() = 0;
     [[nodiscard]] virtual unsigned int classID() const;
 
-    template <detail::SerializablePrimitive S> void expose(const std::string& name, S& value);
+    template <detail::SerializablePrimitive P> void expose(const std::string& name, P& value);
     void expose(const std::string& name, Serializable& value);
-    template <detail::SerializableObject S> void expose(const std::string& name, S*& value);
-    template <detail::SerializableContainer S> void expose(const std::string& name, S& value);
+    template <detail::SerializableObject P> void expose(const std::string& name, P*& value);
+    template <detail::SerializableContainer C> void expose(const std::string& name, C& value);
 
   private:
     enum class Mode { SERIALIZING, DESERIALIZING };
@@ -234,14 +241,14 @@ class Serializable {
 };
 
 namespace detail {
-template <SerializableContainer S> class SerialContainer : public Serializable {
+template <SerializableContainer C> class SerialContainer : public Serializable {
   public:
-    explicit SerialContainer(S& value);
+    explicit SerialContainer(C& value);
 
     void exposed() override;
 
   private:
-    S* value;
+    C* value;
 };
 } // namespace detail
 } // namespace serializable
@@ -849,14 +856,14 @@ inline Serializable::Result Serializable::load(const std::filesystem::path& path
 
 inline unsigned int Serializable::classID() const { return 0; }
 
-template <detail::SerializablePrimitive S> void Serializable::expose(const std::string& name, S& value) {
+template <detail::SerializablePrimitive P> void Serializable::expose(const std::string& name, P& value) {
     // Abort if a previous error was detected
     if(result != Result::OK) return;
 
     if(mode == Mode::SERIALIZING) {
         // Append new serial primitive to root
         serial->asObject()->append(std::make_unique<detail::SerialPrimitive>(
-          detail::string::TypeToString<S>, name, detail::string::serializePrimitive(value)));
+          detail::string::TypeToString<P>, name, detail::string::serializePrimitive(value)));
     } else {
         // Find serial value in root object
         const auto serialValue = serial->asObject()->getChild(name);
@@ -873,13 +880,13 @@ template <detail::SerializablePrimitive S> void Serializable::expose(const std::
         }
 
         // Check primitive type
-        if(serialPrimitive->getType() != detail::string::TypeToString<S>) {
+        if(serialPrimitive->getType() != detail::string::TypeToString<P>) {
             result = Result::TYPECHECK;
             return;
         }
 
         // Get primitive value
-        const auto primitiveValue = detail::string::deserializePrimitive<S>(serialPrimitive->getValue());
+        const auto primitiveValue = detail::string::deserializePrimitive<P>(serialPrimitive->getValue());
         if(!primitiveValue) {
             result = Result::TYPECHECK;
             return;
@@ -950,7 +957,7 @@ inline void Serializable::expose(const std::string& name, Serializable& value) {
     }
 }
 
-template <detail::SerializableObject S> void Serializable::expose(const std::string& name, S*& value) {
+template <detail::SerializableObject O> void Serializable::expose(const std::string& name, O*& value) {
     // Abort if previous error was detected
     if(result != Result::OK) return;
 
@@ -992,33 +999,51 @@ template <detail::SerializableObject S> void Serializable::expose(const std::str
     }
 }
 
-template <detail::SerializableContainer S> void Serializable::expose(const std::string& name, S& value) {
+template <detail::SerializableContainer C> void Serializable::expose(const std::string& name, C& value) {
     // Abort if previous error was detected
     if(result != Result::OK) return;
 
     // Create new serial container
-    detail::SerialContainer<S> serialContainer(value);
+    detail::SerialContainer<C> serialContainer(value);
 
     // Expose container
     expose(name, serialContainer);
 }
 
 namespace detail {
-template <SerializableContainer S> SerialContainer<S>::SerialContainer(S& value) : value(&value) {}
+template <SerializableContainer C> SerialContainer<C>::SerialContainer(C& value) : value(&value) {}
 
-template <SerializableContainer S> void SerialContainer<S>::exposed() {
-    // Expose size
-    std::size_t size = value->size();
-    expose("size", size);
+template <SerializableContainer C> void SerialContainer<C>::exposed() {
+    if constexpr(requires { value->begin()->first; }) {
+        // Generate list of keys
+        std::list<std::string> keys;
+        for(auto& [key, _] : *value) keys.push_back(key);
 
-    // Resize container if necessary and possible
-    if constexpr(requires { value->resize(size); }) {
-        if(size != value->size()) value->resize(size);
+        // Expose keys
+        expose("keys", keys);
+
+        // Expose elements
+        for(const auto& key : keys) expose(key, (*value)[key]);
+
+        // Remove keys that are not in the container anymore
+        for(auto it = value->begin(); it != value->end();)
+            if(std::find(keys.begin(), keys.end(), it->first) == keys.end()) it = value->erase(it);
+            else it++;
+    } else {
+        // If container supports resize, expose size and resize container
+        if constexpr(requires { value->resize(0); }) {
+            // Expose size
+            std::size_t size = value->size();
+            expose("size", size);
+
+            // Resize container
+            if(size != value->size()) value->resize(size);
+        }
+
+        // Expose elements
+        std::size_t index = 0;
+        for(auto& element : *value) expose(string::serializePrimitive(index++), element);
     }
-
-    // Expose elements
-    std::size_t index = 0;
-    for(auto& element : *value) expose(string::serializePrimitive(index++), element);
 }
 } // namespace detail
 } // namespace serializable

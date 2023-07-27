@@ -11,6 +11,8 @@
         "TYPECHECK",
         "UCHAR",
         "ULONG",
+        "umap",
+        "uset",
         "USHORT",
         "Woorld",
         "Wrld"
