@@ -1,424 +1,608 @@
 #include "serializable.hpp"
-#include <array>
-#include <chrono>
-#include <cstddef>
-#include <cstdlib>
-#include <iomanip>
-#include <ios>
+#include <bit>
+#include <climits>
 #include <iostream>
-#include <ratio>
+#include <memory>
+#include <optional>
 #include <string>
+#include <utility>
 
-using Result = serializable::Serializable::Result;
+// NOLINTBEGIN(*-non-private-*)
 
-// NOLINTBEGIN(*non-private*)
-class Simple : public serializable::Serializable {
-  public:
-    int i = 42;
-    void exposed() override { expose("i", i); }
-    unsigned int classID() const override { return 42; }
+// Assert
+template <typename T> concept Printable = requires(T t) {
+    { std::cout << t << "" };
 };
 
-class AllTypes : public serializable::Serializable {
-  public:
-    enum class Enum { ABC, DEF, XYZ };
-    bool b            = true;
-    short s           = -1;
-    unsigned short us = 2;
-    int i             = -3;
-    unsigned int ui   = 4;
-    long l            = -5;
-    unsigned long ul  = 6;
-    // Float types aren't easily verifiable, therefore left out for now
-    std::string str = "Hello, world!";
-    Enum myEnum     = Enum::DEF;
+void assert(bool b, const char* function, const char* message) {
+    if(b) return;
+    std::cout << "[FAILED] " << function << ": " << message << "\n";
+}
+
+template <typename T, typename U>
+void assertEqual(const T& expected, const U& actual, const char* function, const char* message) {
+    assert(expected == actual, function, message); // NOLINT(*-decay)
+}
+
+template <Printable T, Printable U>
+void assertEqual(const T& expected, const U& actual, const char* function, const char* message) {
+    if(expected == actual) return;                                                             // NOLINT(*-decay)
+    assert(false, function, message);                                                          // NOLINT(*-decay)
+    std::cout << "### EXPECTED ###\n" << expected << "\n### ACTUAL ###\n" << actual << "\n\n"; // NOLINT(*-decay)
+}
+
+template <serializable::detail::Enum T, serializable::detail::Enum U>
+void assertEqual(const T& expected, const U& actual, const char* function, const char* message) {
+    assertEqual(static_cast<unsigned int>(expected), static_cast<unsigned int>(actual), function, message);
+}
+
+// String manipulation
+void testStringManipulation() {
+    namespace str = serializable::detail::string;
+
+    assertEqual("abcdefxyz", str::makeString({ "abc", "def", "xyz" }), "makeString", "Case 1");
+
+    assertEqual("def", str::substring("abcdefxyz", 3, 6), "substring", "Case 1");
+
+    assertEqual("acaccaacaaca", str::replaceAll("ababbaabaaba", "b", "c"), "replaceAll", "Case 2");
+    assertEqual("a<>aa<>a", str::replaceAll("abaaba", "b", "<>"), "replaceAll", "Case 2");
+    assertEqual("a____bb__b__b____aa", str::replaceAll("aababbbabbabbababaa", "ab", "__"), "replaceAll", "Case 3");
+    assertEqual("xabxba", str::replaceAll("aaabaaba", "aa", "x"), "replaceAll", "Case 4");
+
+    assertEqual("abc\ndef\nxyz", str::connect({ "abc", "def", "xyz" }), "connect", "Case 1");
+    assertEqual("abcdef", str::connect({ "abcdef" }), "connect", "Case 2");
+    assertEqual("", str::connect({}), "connect", "Case 3");
+
+    const auto split1 = str::split("abc\ndef\nxyz");
+    assert(3 == split1.size(), "split", "Case 1");
+    assertEqual("abc", split1[0], "split", "Case 1.1");
+    assertEqual("def", split1[1], "split", "Case 1.2");
+    assertEqual("xyz", split1[2], "split", "Case 1.3");
+
+    const auto split2 = str::split("abc\n\ndef\n");
+    assert(4 == split2.size(), "split", "Case 2");
+    assertEqual("abc", split2[0], "split", "Case 2.1");
+    assertEqual("", split2[1], "split", "Case 2.2");
+    assertEqual("def", split2[2], "split", "Case 2.3");
+    assertEqual("", split2[3], "split", "Case 2.4");
+
+    const auto split3 = str::split("abc {\n\tdef\n\txyz\n}\nhi");
+    assert(2 == split3.size(), "split", "Case 3");
+    assertEqual("abc {\n\tdef\n\txyz\n}", split3[0], "split", "Case 3.1");
+    assertEqual("hi", split3[1], "split", "Case 3.2");
+
+    assertEqual("\tabc", str::indent("abc"), "indent", "Case 1");
+    assertEqual("\tabc\n\tdef\n\txyz", str::indent("abc\ndef\nxyz"), "indent", "Case 2");
+    assertEqual("\tabc\n\t\t\n\t\tdef\n\t", str::indent("abc\n\t\n\tdef\n"), "indent", "Case 3");
+
+    assertEqual("abc", str::unindent("\tabc"), "unindent", "Case 1");
+    assertEqual("abc\ndef\nxyz", str::unindent("\tabc\n\tdef\n\txyz"), "unindent", "Case 2");
+    assertEqual("abc\n\t\n\tdef\n", str::unindent("\tabc\n\t\t\n\t\tdef\n\t"), "unindent", "Case 3");
+}
+
+void testPrimitiveConversions() {
+    namespace str            = serializable::detail::string;
+    const constexpr auto NaN = std::nullopt;
+
+    assertEqual("true", str::boolToString(true), "boolToString", "true");
+    assertEqual("false", str::boolToString(false), "boolToString", "false");
+
+    assertEqual(true, str::stringToBool("true"), "stringToBool", "true");
+    assertEqual(false, str::stringToBool("false"), "stringToBool", "false");
+    assertEqual(NaN, str::stringToBool("meow"), "stringToBool", "invalid");
+
+    assertEqual("42", str::charToString(42), "charToString", "42");
+    assertEqual("-42", str::charToString(-42), "charToString", "-42");
+
+    assertEqual(42, str::stringToChar("42"), "stringToChar", "42");
+    assertEqual(-42, str::stringToChar("-42"), "stringToChar", "-42");
+    assertEqual(NaN, str::stringToChar("forty-two"), "stringToChar", "invalid");
+    assertEqual(NaN, str::stringToChar(std::to_string(CHAR_MIN - 1)), "stringToChar", "underflow");
+    assertEqual(NaN, str::stringToChar(std::to_string(CHAR_MAX + 1)), "stringToChar", "overflow");
+
+    assertEqual("42", str::ucharToString(42), "ucharToString", "42");
+
+    assertEqual(42, str::stringToUChar("42"), "stringToUChar", "42");
+    assertEqual(NaN, str::stringToUChar("-42"), "stringToUChar", "negative");
+    assertEqual(NaN, str::stringToUChar("forty-two"), "stringToUChar", "invalid");
+    assertEqual(NaN, str::stringToUChar(std::to_string(UCHAR_MAX + 1)), "stringToUChar", "overflow");
+
+    assertEqual("42", str::shortToString(42), "shortToString", "42");
+    assertEqual("-42", str::shortToString(-42), "shortToString", "-42");
+
+    assertEqual(42, str::stringToShort("42"), "stringToShort", "42");
+    assertEqual(-42, str::stringToShort("-42"), "stringToShort", "-42");
+    assertEqual(NaN, str::stringToShort("forty-two"), "stringToShort", "invalid");
+    assertEqual(NaN, str::stringToShort(std::to_string(SHRT_MIN - 1)), "stringToShort", "underflow");
+    assertEqual(NaN, str::stringToShort(std::to_string(SHRT_MAX + 1)), "stringToShort", "overflow");
+
+    assertEqual("42", str::ushortToString(42), "ushortToString", "42");
+
+    assertEqual(42, str::stringToUShort("42"), "stringToUShort", "42");
+    assertEqual(NaN, str::stringToUShort("-42"), "stringToUShort", "negative");
+    assertEqual(NaN, str::stringToUShort("forty-two"), "stringToUShort", "invalid");
+    assertEqual(NaN, str::stringToUShort(std::to_string(USHRT_MAX + 1)), "stringToUShort", "overflow");
+
+    assertEqual("42", str::intToString(42), "intToString", "42");
+    assertEqual("-42", str::intToString(-42), "intToString", "-42");
+
+    assertEqual(42, str::stringToInt("42"), "stringToInt", "42");
+    assertEqual(-42, str::stringToInt("-42"), "stringToInt", "-42");
+    assertEqual(NaN, str::stringToInt("forty-two"), "stringToInt", "invalid");
+    assertEqual(NaN, str::stringToInt(std::to_string(INT_MIN - 1L)), "stringToInt", "underflow");
+    assertEqual(NaN, str::stringToInt(std::to_string(INT_MAX + 1L)), "stringToInt", "overflow");
+
+    assertEqual("42", str::uintToString(42), "uintToString", "42");
+
+    assertEqual(42, str::stringToUInt("42"), "stringToUInt", "42");
+    assertEqual(NaN, str::stringToUInt("-42"), "stringToUInt", "negative");
+    assertEqual(NaN, str::stringToUInt("forty-two"), "stringToUInt", "invalid");
+    assertEqual(NaN, str::stringToUInt(std::to_string(UINT_MAX + 1L)), "stringToUInt", "overflow");
+
+    assertEqual("42", str::longToString(42), "longToString", "42");
+    assertEqual("-42", str::longToString(-42), "longToString", "-42");
+
+    assertEqual(42, str::stringToLong("42"), "stringToLong", "42");
+    assertEqual(-42, str::stringToLong("-42"), "stringToLong", "-42");
+    assertEqual(NaN, str::stringToLong("forty-two"), "stringToLong", "invalid");
+    assertEqual(NaN, str::stringToLong(std::to_string(LONG_MIN) + "0"), "stringToLong", "underflow");
+    assertEqual(NaN, str::stringToLong(std::to_string(LONG_MAX) + "0"), "stringToLong", "overflow");
+
+    assertEqual("42", str::ulongToString(42), "ulongToString", "42");
+
+    assertEqual(42, str::stringToULong("42"), "stringToULong", "42");
+    assertEqual(NaN, str::stringToULong("-42"), "stringToULong", "negative");
+    assertEqual(NaN, str::stringToULong("forty-two"), "stringToULong", "invalid");
+    assertEqual(NaN, str::stringToULong(std::to_string(ULONG_MAX) + "0"), "stringToULong", "overflow");
+
+    assertEqual("3.141000", str::floatToString(3.141), "floatToString", "PI");
+    assertEqual("-3.141000", str::floatToString(-3.141), "floatToString", "-PI");
+
+    assert(std::abs(3.141 - str::stringToFloat("3.141000").value_or(0)) < 0.0001, "stringToFloat", "PI");
+    assert(std::abs(-3.141 - str::stringToFloat("-3.141000").value_or(0)) < 0.0001, "stringToFloat", "-PI");
+    assertEqual(NaN, str::stringToFloat("pi"), "stringToFloat", "invalid");
+
+    assertEqual("3.141000", str::doubleToString(3.141), "doubleToString", "PI");
+    assertEqual("-3.141000", str::doubleToString(-3.141), "doubleToString", "-PI");
+
+    assert(std::abs(3.141 - str::stringToDouble("3.141000").value_or(0)) < 0.0001, "stringToDouble", "PI");
+    assert(std::abs(-3.141 - str::stringToDouble("-3.141000").value_or(0)) < 0.0001, "stringToDouble", "-PI");
+    assertEqual(NaN, str::stringToDouble("pi"), "stringToDouble", "invalid");
+
+    assertEqual("\"Hello, world!\"", str::encodeString("Hello, world!"), "encodeString", "Hello, world!");
+    assertEqual("\"&quot;Hi!&quot;&newline;\"", str::encodeString("\"Hi!\"\n"), "encodeString", "Escaped characters");
+
+    assertEqual("Hello!", str::decodeString("\"Hello!\""), "decodeString", "Hello!");
+    assertEqual("\"Hi!\"\n", str::decodeString("\"&quot;Hi!&quot;&newline;\""), "decodeString", "Escaped characters");
+}
+
+void testComplexConversions() {
+    namespace str = serializable::detail::string;
+    using Type    = serializable::detail::SerialPrimitive::Type;
+
+    assertEqual("VOID", str::typeToString(Type::VOID), "typeToString", "VOID");
+    assertEqual("BOOL", str::typeToString(Type::BOOL), "typeToString", "BOOL");
+    assertEqual("INT", str::typeToString(Type::INT), "typeToString", "INT");
+    assertEqual("USHORT", str::typeToString(Type::USHORT), "typeToString", "USHORT");
+    assertEqual("STRING", str::typeToString(Type::STRING), "typeToString", "STRING");
+
+    assertEqual(Type::BOOL, str::stringToType("BOOL"), "stringToType", "BOOL");
+    assertEqual(Type::UINT, str::stringToType("UINT"), "stringToType", "UINT");
+    assertEqual(Type::STRING, str::stringToType("STRING"), "stringToType", "STRING");
+    assertEqual(Type::VOID, str::stringToType("INVALID"), "stringToType", "INVALID");
+}
+
+void testParsers() {
+    namespace str = serializable::detail::string;
+
+    auto primitive = str::parsePrimitive("BOOL my_bool = true");
+    if(primitive) {
+        assertEqual("BOOL", primitive->at(0), "parsePrimitive", "Case 1.0");
+        assertEqual("my_bool", primitive->at(1), "parsePrimitive", "Case 1.1");
+        assertEqual("true", primitive->at(2), "parsePrimitive", "Case 1.2");
+    } else assert(false, "parsePrimitive", "Case 1");
+
+    primitive = str::parsePrimitive("STRING username = \"xXThat_GuyXx\"");
+    if(primitive) {
+        assertEqual("STRING", primitive->at(0), "parsePrimitive", "Case 2.0");
+        assertEqual("username", primitive->at(1), "parsePrimitive", "Case 2.1");
+        assertEqual("\"xXThat_GuyXx\"", primitive->at(2), "parsePrimitive", "Case 2.2");
+    } else assert(false, "parsePrimitive", "Case 2");
+
+    primitive = str::parsePrimitive("FLOAT pi = 3.141");
+    if(primitive) {
+        assertEqual("FLOAT", primitive->at(0), "parsePrimitive", "Case 3.0");
+        assertEqual("pi", primitive->at(1), "parsePrimitive", "Case 3.1");
+        assertEqual("3.141", primitive->at(2), "parsePrimitive", "Case 3.2");
+    } else assert(false, "parsePrimitive", "Case 3");
+
+    auto object = str::parseObject("OBJECT<0> root = 1 {\n\t\n}");
+    if(object) {
+        assertEqual("0", object->at(0), "parseObject", "Case 1.0");
+        assertEqual("root", object->at(1), "parseObject", "Case 1.1");
+        assertEqual("1", object->at(2), "parseObject", "Case 1.2");
+        assertEqual("\t", object->at(3), "parseObject", "Case 1.3");
+    } else assert(false, "parseObject", "Case 1");
+
+    object = str::parseObject("OBJECT<0> root = 1 {}");
+    if(object) {
+        assertEqual("0", object->at(0), "parseObject", "Case 2.0");
+        assertEqual("root", object->at(1), "parseObject", "Case 2.1");
+        assertEqual("1", object->at(2), "parseObject", "Case 2.2");
+        assertEqual("", object->at(3), "parseObject", "Case 2.3");
+    } else assert(false, "parseObject", "Case 2");
+
+    object = str::parseObject("OBJECT<3> root = 5 {\n\tINT answer = 42\n\tBOOL valid = true\n}");
+    if(object) {
+        assertEqual("3", object->at(0), "parseObject", "Case 3.0");
+        assertEqual("root", object->at(1), "parseObject", "Case 3.1");
+        assertEqual("5", object->at(2), "parseObject", "Case 3.2");
+        assertEqual("\tINT answer = 42\n\tBOOL valid = true", object->at(3), "parseObject", "Case 3.3");
+    } else assert(false, "parseObject", "Case 3");
+
+    object = str::parseObject("OBJECT<1> root = 1 {\n\tOBJECT<2> sub = 2 {\n\t\tDOUBLE pi = 3.14\n\t}\n}");
+    if(object) {
+        assertEqual("1", object->at(0), "parseObject", "Case 4.0");
+        assertEqual("root", object->at(1), "parseObject", "Case 4.1");
+        assertEqual("1", object->at(2), "parseObject", "Case 4.2");
+        assertEqual("\tOBJECT<2> sub = 2 {\n\t\tDOUBLE pi = 3.14\n\t}", object->at(3), "parseObject", "Case 4.3");
+    } else assert(false, "parseObject", "Case 4");
+
+    auto pointer = str::parsePointer("PTR<4> my_pointer = 23");
+    if(pointer) {
+        assertEqual("4", pointer->at(0), "parsePointer", "Case 1.0");
+        assertEqual("my_pointer", pointer->at(1), "parsePointer", "Case 1.1");
+        assertEqual("23", pointer->at(2), "parsePointer", "Case 1.2");
+    } else assert(false, "parsePointer", "Case 1");
+}
+
+// Serial types
+void testSerialPrimitive() {
+    using serializable::detail::SerialPrimitive;
+
+    const SerialPrimitive source(SerialPrimitive::Type::INT, "the_answer", "42");
+    assertEqual("INT the_answer = 42", source.get(), "SerialPrimitive", "get");
+
+    SerialPrimitive target;
+    assert(target.set("BOOL my_bool = true"), "SerialPrimitive", "set");
+    assertEqual("BOOL my_bool = true", target.get(), "SerialPrimitive", "set");
+
+    assert(target.set(source.get()), "SerialPrimitive", "transfer");
+    assertEqual(source.get(), target.get(), "SerialPrimitive", "transfer");
+}
+
+void testSerialObject() {
+    using serializable::detail::SerialObject;
+    using serializable::detail::SerialPrimitive;
+
+    SerialObject source(1, "root", 0, 0);
+    source.append(std::make_unique<SerialPrimitive>(SerialPrimitive::Type::BOOL, "my_bool", "false"));
+    source.append(std::make_unique<SerialPrimitive>(SerialPrimitive::Type::INT, "something", "123"));
+    source.append(std::make_unique<SerialPrimitive>(SerialPrimitive::Type::FLOAT, "pi", "3.141"));
+    {
+        auto pos = std::make_unique<SerialObject>(2, "pos", 0, 0);
+        pos->append(std::make_unique<SerialPrimitive>(SerialPrimitive::Type::INT, "x", "1"));
+        pos->append(std::make_unique<SerialPrimitive>(SerialPrimitive::Type::INT, "y", "4"));
+        source.append(std::move(pos));
+    }
+
+    SerialObject target;
+    assert(target.set(source.get()), "SerialObject", "set");
+
+    auto child = target.getChild("my_bool");
+    if(child) assertEqual("BOOL my_bool = false", child.value()->get(), "SerialObject", "my_bool");
+    else assert(false, "SerialObject", "extract my_bool");
+
+    child = target.getChild("something");
+    if(child) assertEqual("INT something = 123", child.value()->get(), "SerialObject", "something");
+    else assert(false, "SerialObject", "extract something");
+
+    child = target.getChild("pi");
+    if(child) assertEqual("FLOAT pi = 3.141", child.value()->get(), "SerialObject", "pi");
+    else assert(false, "SerialObject", "extract pi");
+
+    child = target.getChild("pos");
+    if(child) {
+        auto* pos = child.value()->asObject();
+
+        auto sub = pos->getChild("x");
+        if(sub) assertEqual("INT x = 1", sub.value()->get(), "SerialObject", "pos.x");
+        else assert(false, "SerialObject", "extract pos.x");
+
+        sub = pos->getChild("y");
+        if(sub) assertEqual("INT y = 4", sub.value()->get(), "SerialObject", "pos.y");
+        else assert(false, "SerialObject", "extract pos.y");
+    } else assert(false, "SerialObject", "extract pos");
+}
+
+void testSerialPointer() {
+    using serializable::detail::SerialPointer;
+
+    unsigned long data = 123;
+    const SerialPointer source(42, "my_pointer", std::bit_cast<void**>(&data));
+    assertEqual("PTR<42> my_pointer = 123", source.get(), "SerialPointer", "get");
+
+    SerialPointer target;
+    assert(target.set("PTR<3> mirror = 5"), "SerialPointer", "set");
+    assertEqual("PTR<3> mirror = 5", target.get(), "SerialPointer", "set");
+
+    assert(target.set(source.get()), "SerialPointer", "transfer");
+    assertEqual(source.get(), target.get(), "SerialPointer", "transfer");
+}
+
+// Basic
+struct Basic : public serializable::Serializable {
+    int value;
+
+    explicit Basic(int i) : value(i) {}
+
+    void exposed() override { expose("i", value); }
+
+    unsigned int classID() const override { return 3; }
+};
+
+void testBasic() {
+    Basic source(42);
+
+    const auto serialized = source.serialize();
+    assertEqual(Basic::Result::OK, serialized.first, "Basic", "serialize result");
+    assertEqual("OBJECT<3> root = 1 {\n\tINT i = 42\n}", serialized.second, "Basic", "serialize value");
+
+    Basic target(0);
+    const auto deserialized = target.deserialize(serialized.second);
+    assertEqual(Basic::Result::OK, deserialized, "Basic", "deserialize result");
+    assertEqual(source.value, target.value, "Basic", "deserialize value");
+}
+
+// All types
+struct AllTypes : public serializable::Serializable {
+    enum class MyEnum { ABC, DEF, XYZ };
+
+    bool b;
+    char c;
+    unsigned char uc;
+    short s;
+    unsigned short us;
+    int i;
+    unsigned int ui;
+    long l;
+    unsigned long ul;
+    float f;
+    double d;
+    std::string str;
+    MyEnum m;
+    AllTypes* self;
+
+    AllTypes(bool b, char c, unsigned char uc, short s, unsigned short us, int i, unsigned int ui, long l,
+             unsigned long ul, float f, double d, std::string str, MyEnum m)
+        : b(b), c(c), uc(uc), s(s), us(us), i(i), ui(ui), l(l), ul(ul), f(f), d(d), str(std::move(str)), m(m),
+          self(this) {}
+
     void exposed() override {
         expose("b", b);
+        expose("c", c);
+        expose("uc", uc);
         expose("s", s);
         expose("us", us);
         expose("i", i);
         expose("ui", ui);
         expose("l", l);
         expose("ul", ul);
+        expose("f", f);
+        expose("d", d);
         expose("str", str);
-        expose("My Enum", myEnum);
+        expose("m", m);
+        expose("self", self);
     }
+
+    unsigned int classID() const override { return 5; }
 };
 
-class Nested : public serializable::Serializable {
-  public:
-    Simple s1, s2;
-    serializable::Vector<serializable::Array<int, 3>> triples;
+void testAllTypes() {
+    AllTypes source(true, 'a', 'x', 42, 69, -123, 123, 6502, 12345, 3.141, -1.5, "Hello, world!\n",
+                    AllTypes::MyEnum::DEF);
+    const auto serialized = source.serialize();
+    assertEqual(AllTypes::Result::OK, serialized.first, "All Types", "serialize result");
+
+    AllTypes target(false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", AllTypes::MyEnum::ABC);
+    const auto deserialized = target.deserialize(serialized.second);
+    assertEqual(AllTypes::Result::OK, deserialized, "All Types", "deserialize result");
+    assertEqual(source.b, target.b, "All Types", "deserialize value BOOL");
+    assertEqual(source.c, target.c, "All Types", "deserialize value CHAR");
+    assertEqual(source.uc, target.uc, "All Types", "deserialize value UCHAR");
+    assertEqual(source.s, target.s, "All Types", "deserialize value SHORT");
+    assertEqual(source.us, target.us, "All Types", "deserialize value USHORT");
+    assertEqual(source.i, target.i, "All Types", "deserialize value INT");
+    assertEqual(source.ui, target.ui, "All Types", "deserialize value UINT");
+    assertEqual(source.l, target.l, "All Types", "deserialize value LONG");
+    assertEqual(source.ul, target.ul, "All Types", "deserialize value ULONG");
+    assertEqual(source.f, target.f, "All Types", "deserialize value FLOAT");
+    assertEqual(source.d, target.d, "All Types", "deserialize value DOUBLE");
+    assertEqual(source.str, target.str, "All Types", "deserialize value STRING");
+    assertEqual(source.m, target.m, "All Types", "deserialize value ENUM");
+    assertEqual(&target, target.self, "All Types", "deserialize value PTR");
+}
+
+// Nested
+struct Nested : public serializable::Serializable {
+    struct Position : public serializable::Serializable {
+        Position() = default;
+
+        Position(int x, int y) : x(x), y(y) {}
+
+        void exposed() override {
+            expose("x", x);
+            expose("y", y);
+        }
+
+        unsigned int classID() const override { return 2; }
+
+        int x{}, y{};
+    };
+
+    struct Player : public serializable::Serializable {
+        Player() = default;
+
+        Player(const Position& pos, int level) : pos(pos), level(level) {}
+
+        void exposed() override {
+            expose("Position", pos);
+            expose("level", level);
+        }
+
+        unsigned int classID() const override { return 3; }
+
+        Position pos;
+        int level{};
+    };
+
     void exposed() override {
-        expose("S1", s1);
-        expose("S2", s2);
-        expose("Pythagorean Triples", triples);
+        expose("pos", pos);
+        expose("prevPos", prevPos);
+        expose("player", player);
     }
-    static serializable::Array<int, 3> makeTriple(int i, int j, int k) {
-        serializable::Array<int, 3> arr;
-        arr[0] = i;
-        arr[1] = j;
-        arr[2] = k;
-        return arr;
-    }
+
+    unsigned int classID() const override { return 1; }
+
+    Position pos, prevPos;
+    Player player;
 };
-
-class Pointing : public serializable::Serializable {
-  public:
-    Simple simple, other_simple, not_exposed, *current{};
-    Pointing* ptr{};
-    void exposed() override {
-        expose("Simple", simple);
-        expose("Other", other_simple);
-        expose("Current", current);
-        expose("Mad", ptr);
-    }
-    unsigned int classID() const override { return 123; }
-};
-
-class Named : public serializable::Serializable {
-  public:
-    const char* name{};
-    int i{};
-    void exposed() override { expose(name, i); }
-};
-// NOLINTEND(*non-private*)
-
-void assert(bool condition, const char* message) {
-    if(condition) return;
-    std::cerr << "[Failed] " << message << "\n";
-    std::exit(1); // NOLINT(concurrency-mt-unsafe)
-}
-
-void assertEqual(const std::string& s, const std::string& t, const char* message) {
-    if(s == t) return;
-    std::cout << s << "\n>DIFFERS<\n" << t << "\n";
-    assert(false, message);
-}
-
-void assertOk(Result result, const char* message) {
-    switch(result) {
-    case serializable::Serializable::Result::OK: return;
-    case serializable::Serializable::Result::FILE: std::cerr << "I/O Error\n"; break;
-    case serializable::Serializable::Result::STRUCTURE: std::cerr << "Syntax Error\n"; break;
-    case serializable::Serializable::Result::TYPECHECK: std::cerr << "Type Error\n"; break;
-    case serializable::Serializable::Result::INTEGRITY: std::cerr << "Integrity Error\n"; break;
-    case serializable::Serializable::Result::POINTER: std::cerr << "Pointer Error\n"; break;
-    }
-    assert(false, message);
-}
-
-void testSerialize() {
-    {
-        Simple simple;
-        auto [result, serial] = simple.serialize();
-        assertOk(result, "Serialize: Simple");
-        assertEqual(serial, "OBJECT ROOT = 0 (42) {\n\tINT i = 42\n}", "Serialize: Simple");
-    }
-
-    {
-        AllTypes allTypes;
-        auto [result, serial] = allTypes.serialize();
-        assertOk(result, "Serialize: AllTypes");
-        assertEqual(
-            serial,
-            "OBJECT ROOT = 0 (0) {\n\tENUM My Enum = 1\n\tULONG ul = 6\n\tINT i = -3\n\tUINT ui = 4\n\tUSHORT us = "
-            "2\n\tLONG l = -5\n\tSHORT s = -1\n\tSTRING str = \"Hello, world!\"\n\tBOOL b = true\n}",
-            "Serialize: AllTypes");
-    }
-
-    {
-        serializable::Vector<int> vec;
-        vec.push_back(10);
-        vec.push_back(20);
-        vec.push_back(30);
-        auto [result, serial] = vec.serialize();
-        assertOk(result, "Serialize: Vector");
-        assertEqual(serial, "OBJECT ROOT = 0 (2) {\n\tINT 2 = 30\n\tINT 1 = 20\n\tINT 0 = 10\n\tULONG length = 3\n}",
-                    "Serialize: Vector");
-    }
-}
-
-void testDeserialize() {
-    Result result{};
-
-    Simple simple;
-    result = simple.deserialize("OBJECT ROOT = 0 (42) {\n\tINT i = -42\n}");
-    assertOk(result, "Deserialize: Simple");
-    assert(simple.i == -42, "Deserialize: Simple (i)");
-
-    result = simple.deserialize("OBJECT not_root = 0 (42) {\n\tINT i = 13\n}");
-    assertOk(result, "Deserialize: Renamed root object");
-    assert(simple.i == 13, "Deserialize: Renamed root object (i)");
-
-    result = simple.deserialize("OBJECT ROOT = 0 (42) {\n\tINT i = 42\n}\n");
-    assertOk(result, "Deserialize: Extra newline");
-    assert(simple.i == 42, "Deserialize: Extra newline (i)");
-
-    AllTypes allTypes;
-    result = allTypes.deserialize(
-        "OBJECT ROOT = 0 (0) {\n\tBOOL b = false\n\tSHORT s = -3\n\tUSHORT us = 6\n\tINT i = -9\n\tUINT ui = "
-        "12\n\tLONG l = -15\n\tULONG ul = 18\n\tSTRING str = \"Bye bye!\"\n\tENUM My Enum = 2\n}");
-    assertOk(result, "Deserialize: AllTypes");
-    assert(!allTypes.b, "Deserialize: AllTypes (b)");
-    assert(allTypes.s == -3, "Deserialize: AllTypes (s)");
-    assert(allTypes.us == 6, "Deserialize: AllTypes (us)");
-    assert(allTypes.i == -9, "Deserialize: AllTypes (i)");
-    assert(allTypes.ui == 12, "Deserialize: AllTypes (ui)");
-    assert(allTypes.l == -15, "Deserialize: AllTypes (l)");
-    assert(allTypes.ul == 18, "Deserialize: AllTypes (ul)");
-    assert(allTypes.str == "Bye bye!", "Deserialize: AllTypes (str)");
-    assert(allTypes.myEnum == AllTypes::Enum::XYZ, "Deserialize: AllTypes (myEnum)");
-
-    serializable::Vector<int> vec;
-    result = vec.deserialize("OBJECT ROOT = 0 (2) {\n\tULONG length = 3\n\tINT 0 = 10\n\tINT 1 = 20\n\tINT 2 = 30\n}");
-    assertOk(result, "Deserialize: Vector");
-    assert(vec.size() == 3, "Deserialize: Vector (length)");
-    assert(vec[0] == 10, "Deserialize: Vector (0)");
-    assert(vec[1] == 20, "Deserialize: Vector (1)");
-    assert(vec[2] == 30, "Deserialize: Vector (2)");
-}
 
 void testNested() {
-    Nested original;
-    original.s1.i = 13;
-    original.s2.i = -42;
-    original.triples.push_back(Nested::makeTriple(3, 4, 5));
-    original.triples.push_back(Nested::makeTriple(5, 12, 13));
-    original.triples.push_back(Nested::makeTriple(8, 15, 17));
-    original.triples.push_back(Nested::makeTriple(7, 24, 25));
-    original.triples.push_back(Nested::makeTriple(20, 21, 29));
-    original.triples.push_back(Nested::makeTriple(12, 35, 37));
-    original.triples.push_back(Nested::makeTriple(9, 40, 41));
-    original.triples.push_back(Nested::makeTriple(28, 45, 53));
-    original.triples.push_back(Nested::makeTriple(11, 60, 61));
-    original.triples.push_back(Nested::makeTriple(16, 63, 65));
-    original.triples.push_back(Nested::makeTriple(33, 56, 65));
-    original.triples.push_back(Nested::makeTriple(48, 55, 73));
-    original.triples.push_back(Nested::makeTriple(13, 84, 85));
-    original.triples.push_back(Nested::makeTriple(36, 77, 85));
-    original.triples.push_back(Nested::makeTriple(39, 80, 89));
-    original.triples.push_back(Nested::makeTriple(65, 72, 97));
-    auto [result, serial] = original.serialize();
-    assertOk(result, "Nested: Serialization");
+    Nested source;
+    source.pos          = { 12, 34 };
+    source.prevPos      = { 42, 69 };
+    source.player.pos   = { 1, 2 };
+    source.player.level = 2;
 
-    Nested copy;
-    result = copy.deserialize(serial);
+    const auto serialized = source.serialize();
+    assertEqual(Nested::Result::OK, serialized.first, "Nested", "serialize result");
 
-    assertOk(result, "Nested: Deserialization");
-    assert(copy.s1.i == original.s1.i, "Nested: s1");
-    assert(copy.s2.i == original.s2.i, "Nested: s2");
-    assert(copy.triples == original.triples, "Nested: triples");
+    Nested target;
+    const auto deserialized = target.deserialize(serialized.second);
+    assertEqual(Nested::Result::OK, deserialized, "Nested", "deserialize result");
+    assertEqual(source.pos.x, target.pos.x, "Nested", "deserialize result pos.x");
+    assertEqual(source.pos.y, target.pos.y, "Nested", "deserialize result pos.y");
+    assertEqual(source.prevPos.x, target.prevPos.x, "Nested", "deserialize result prevPos.x");
+    assertEqual(source.prevPos.y, target.prevPos.y, "Nested", "deserialize result prevPos.y");
+    assertEqual(source.player.pos.x, target.player.pos.x, "Nested", "deserialize result player.pos.x");
+    assertEqual(source.player.pos.y, target.player.pos.y, "Nested", "deserialize result player.pos.y");
+    assertEqual(source.player.level, target.player.level, "Nested", "deserialize result player.level");
 }
 
-void testPointers() {
-    {
-        Pointing ptr;
-        ptr.simple.i       = 42;
-        ptr.other_simple.i = 123;
-        ptr.current        = &ptr.simple;
-        ptr.ptr            = &ptr;
+// Files
+struct Files : public serializable::Serializable {
+    int value{};
 
-        auto [result, serial] = ptr.serialize();
-        assertOk(result, "Pointers: Serialize");
-    }
+    Files() = default;
+
+    void exposed() override { expose("value", value); }
+
+    unsigned int classID() const override { return 42; }
+};
+
+void testFiles() {
+    Files source;
+    source.value = 42;
+
+    auto result = source.save("save.txt");
+    assertEqual(Files::Result::OK, result, "Files", "save");
+
+    Files target;
+    result = target.load("save.txt");
+    assertEqual(Files::Result::OK, result, "Files", "load");
+    assertEqual(source.value, target.value, "Files", "load data");
+
+    result = target.load("not-there.txt");
+    assertEqual(Files::Result::FILE, result, "Files", "load inexistent file");
 }
 
-void testErrorDetection() {
-    Simple simple;
-    Pointing pointing;
+// Errors
+struct Errors : public serializable::Serializable {
+    std::string name, value;
 
-    assert(simple.load("FILE DOES NOT EXIST") == Result::FILE, "Error Detection: FILE");
+    Errors(std::string name, std::string value) : name(std::move(name)), value(std::move(value)) {}
 
-    assert(simple.deserialize("Not a save file") == Result::STRUCTURE, "Error Detection: STRUCTURE (1)");
-    assert(simple.deserialize("") == Result::STRUCTURE, "Error Detection: STRUCTURE (2)");
-    assert(simple.deserialize("\n") == Result::STRUCTURE, "Error Detection: STRUCTURE (3)");
-    assert(simple.deserialize("OBJECT ROOT = 0 (42) {\n\tINT i = NaN\n}") == Result::STRUCTURE,
-           "Error Detection: STRUCTURE (4)");
-    assert(simple.deserialize("OBJECT ROOT = 0 (42) {}") == Result::STRUCTURE, "Error Detection: Structure (5)");
-    assert(simple.deserialize("OBJECT ROOT = 0 (42) {\n\tINT i = 1\n}\nExtra data") == Result::STRUCTURE,
-           "Error Detection: Structure (6)");
+    void exposed() override { expose(name, value); }
 
-    assert(simple.deserialize("OBJECT ROOT = 0 (42) {\n\tINT i = 4294967296\n}") == Result::TYPECHECK,
-           "Error Detection: TYPECHECK (1)");
-    assert(simple.deserialize("OBJECT ROOT = 0 (42) {\n\tUINT i = 123\n}") == Result::TYPECHECK,
-           "Error Detection: TYPECHECK (2)");
-    assert(simple.deserialize("OBJECT ROOT = 0 (0) {\n\tUINT i = 123\n}") == Result::TYPECHECK,
-           "Error Detection: TYPECHECK (3)");
+    unsigned int classID() const override { return 10; }
 
-    assert(simple.deserialize("OBJECT ROOT = 0 (42) {\n\tUINT ui = 123\n}") == Result::INTEGRITY,
-           "Error Detection: INTEGRITY (1)");
-    assert(simple.deserialize("OBJECT ROOT = 0 (42) {\n}") == Result::INTEGRITY, "Error Detection: INTEGRITY (2)");
+    void set(const std::string& name, const std::string& value) {
+        this->name  = name;
+        this->value = value;
+    }
+};
 
-    assert(pointing.serialize().first == Result::POINTER, "Error Detection: Nullptr");
+void testErrors() {
+    Errors target("answer", "42");
 
-    pointing.ptr     = &pointing;
-    pointing.current = &pointing.not_exposed;
-    assert(pointing.serialize().first == Result::POINTER, "Error Detection: Pointer to unexposed");
+    auto deserialize = target.deserialize("OBJECT<0> root = 0 {\n\tSTRING answer = \"42\"\n}");
+    assertEqual(Errors::Result::TYPECHECK, deserialize, "Errors", "wrong class id");
 
-    assert(
-        pointing.deserialize(
-            "OBJECT ROOT = 0 (123) {\n\tPTR Current = 3 (0)\n\tPTR Mad = 0 (0)\n\tOBJECT Other = 2 (42) {\n\t\tINT i "
-            "= 123\n\t}\n\tOBJECT Simple = 1 (42) {\n\t\tINT i = 42\n\t}\n}") == Result::TYPECHECK,
-        "Error Detection: Invalid pointer ID");
+    deserialize = target.deserialize("OBJECT<10> root = 0 {}");
+    assertEqual(Errors::Result::INTEGRITY, deserialize, "Errors", "missing values");
 
-    assert(pointing.deserialize("OBJECT ROOT = 0 (123) {\n\tPTR Current = 3 (42)\n\tPTR Mad = 0 (123)\n\tOBJECT Other "
-                                "= 2 (42) {\n\t\tINT i "
-                                "= 123\n\t}\n\tOBJECT Simple = 1 (42) {\n\t\tINT i = 42\n\t}\n}") == Result::POINTER,
-           "Error Detection: Invalid virtual address");
+    deserialize = target.deserialize("OBJECT<10> root = 0 {\n\tINT answer = 42\n}");
+    assertEqual(Errors::Result::TYPECHECK, deserialize, "Errors", "wrong primitive type");
 
-    assert(pointing.deserialize("OBJECT ROOT = 0 (123) {\n\tPTR Current = 1 (42)\n\tPTR Mad = 0 (123)\n\tOBJECT Other "
-                                "= 1 (42) {\n\t\tINT i "
-                                "= 123\n\t}\n\tOBJECT Simple = 2 (42) {\n\t\tINT i = 42\n\t}\n}") == Result::OK,
-           "Error Detection: MAD pointer");
+    deserialize = target.deserialize("");
+    assertEqual(Errors::Result::STRUCTURE, deserialize, "Errors", "empty string");
+
+    deserialize = target.deserialize(R"({"answer": "42"})");
+    assertEqual(Errors::Result::STRUCTURE, deserialize, "Errors", "json string");
+
+    deserialize = target.deserialize("answer := 42");
+    assertEqual(Errors::Result::STRUCTURE, deserialize, "Errors", "unformatted");
+
+    target.name    = "with space";
+    auto serialize = target.serialize();
+    assertEqual(Errors::Result::OK, serialize.first, "Errors", "name with space");
+    assertEqual("OBJECT<10> root = 1 {\n\tSTRING " + target.name + " = \"42\"\n}", serialize.second, "Errors",
+                "name with space value");
+    assertEqual(Errors::Result::OK, target.deserialize(serialize.second), "Errors", "name with space deserialize");
+
+    target.name = "some (more) \"funny\" stuff";
+    serialize   = target.serialize();
+    assertEqual(Errors::Result::OK, serialize.first, "Errors", "name with quotes and brackets");
+    assertEqual("OBJECT<10> root = 1 {\n\tSTRING " + target.name + " = \"42\"\n}", serialize.second, "Errors",
+                "name with quotes and brackets value");
+    assertEqual(Errors::Result::OK, target.deserialize(serialize.second), "Errors",
+                "name with quotes and brackets deserialize");
+
+    target.name = "INT i";
+    serialize   = target.serialize();
+    assertEqual(Errors::Result::OK, serialize.first, "Errors", "primitive type name");
+    assertEqual("OBJECT<10> root = 1 {\n\tSTRING " + target.name + " = \"42\"\n}", serialize.second, "Errors",
+                "primitive type name value");
+    assertEqual(Errors::Result::OK, target.deserialize(serialize.second), "Errors", "primitive type name deserialize");
+
+    target.name = "";
+    serialize   = target.serialize();
+    assertEqual(Errors::Result::OK, serialize.first, "Errors", "no name");
+    assertEqual("OBJECT<10> root = 1 {\n\tSTRING " + target.name + " = \"42\"\n}", serialize.second, "Errors",
+                "no name value");
+    assertEqual(Errors::Result::OK, target.deserialize(serialize.second), "Errors", "no name deserialize");
 }
 
-void testNames() {
-    Named named;
-
-    {
-        named.i               = 42;
-        named.name            = "basic";
-        auto [result, serial] = named.serialize();
-        assertOk(result, "Named: Serialize basic");
-
-        named.i = 0;
-        result  = named.deserialize(serial);
-        assertOk(result, "Named: Deserialize basic");
-        assert(named.i == 42, "Named: Check basic (i)");
-    }
-    {
-        named.i               = 42;
-        named.name            = "with space";
-        auto [result, serial] = named.serialize();
-        assertOk(result, "Named: Serialize with space");
-
-        named.i = 0;
-        result  = named.deserialize(serial);
-        assertOk(result, "Named: Deserialize with space");
-        assert(named.i == 42, "Named: Check with space (i)");
-    }
-    {
-        named.i               = 42;
-        named.name            = "  with more spaces ";
-        auto [result, serial] = named.serialize();
-        assertOk(result, "Named: Serialize with more spaces");
-
-        named.i = 0;
-        result  = named.deserialize(serial);
-        assertOk(result, "Named: Deserialize with more spaces");
-        assert(named.i == 42, "Named: Check with more spaces (i)");
-    }
-    {
-        named.i               = 42;
-        named.name            = "n@n-ständárd characters!\t";
-        auto [result, serial] = named.serialize();
-        assertOk(result, "Named: Serialize n@n-ständárd characters!\t");
-
-        named.i = 0;
-        result  = named.deserialize(serial);
-        assertOk(result, "Named: Deserialize n@n-ständárd characters!\t");
-        assert(named.i == 42, "Named: Check n@n-ständárd characters!\t (i)");
-    }
-    {
-        named.i               = 42;
-        named.name            = "{containing} \"delimiters\"";
-        auto [result, serial] = named.serialize();
-        assertOk(result, "Named: Serialize {containing} \"delimiters\"");
-
-        named.i = 0;
-        result  = named.deserialize(serial);
-        assertOk(result, "Named: Deserialize {containing} \"delimiters\"");
-        assert(named.i == 42, "Named: Check {containing} \"delimiters\" (i)");
-    }
-    {
-        named.i               = 42;
-        named.name            = " ";
-        auto [result, serial] = named.serialize();
-        assertOk(result, "Named: Serialize just a space");
-
-        named.i = 0;
-        result  = named.deserialize(serial);
-        assertOk(result, "Named: Deserialize just a space");
-        assert(named.i == 42, "Named: Check just a space (i)");
-    }
-    {
-        named.i               = 42;
-        named.name            = "containing\nnewlines";
-        auto [result, serial] = named.serialize();
-        assertOk(result, "Named: Serialize containing\nnewlines");
-
-        named.i = 13;
-        result  = named.deserialize(serial);
-        assert(result == Result::STRUCTURE, "Named: Deserialize containing\nnewlines");
-        assert(named.i == 13, "Named: Check containing\nnewlines (i)");
-    }
-    {
-        named.i               = 42;
-        named.name            = "";
-        auto [result, serial] = named.serialize();
-        assertOk(result, "Named: Serialize no name");
-
-        named.i = 13;
-        result  = named.deserialize(serial);
-        assert(result == Result::STRUCTURE, "Named: Deserialize no name");
-        assert(named.i == 13, "Named: Check no name (i)");
-    }
-}
-
-void testSpeed() {
-    // Setup constant definitions
-    using clock = std::chrono::steady_clock;
-    using ms    = std::chrono::microseconds;
-    using std::chrono::duration_cast;
-
-    const constexpr int ITERATIONS = 1;
-    const constexpr int ELEMENTS   = 1000000;
-
-    // Create tracking arrays
-    std::array<long, ITERATIONS> serializeTime{};
-    std::array<long, ITERATIONS> deserializeTime{};
-
-    // Create array
-    serializable::Array<int, ELEMENTS> arr;
-    for(int element = 0; element < ELEMENTS; element++) arr[element] = element + 1;
-
-    // Run tests
-    for(int iteration = 0; iteration < ITERATIONS; iteration++) {
-        // Record serializing time
-        auto startSerialize            = clock::now();
-        auto [resultSerialize, serial] = arr.serialize();
-        serializeTime.at(iteration)    = duration_cast<ms>(clock::now() - startSerialize).count();
-        assertOk(resultSerialize, "Speed test: Serialize");
-
-        // Record deserializing time
-        auto startDeserialize         = clock::now();
-        auto resultDeserialize        = arr.deserialize(serial);
-        deserializeTime.at(iteration) = duration_cast<ms>(clock::now() - startDeserialize).count();
-        assertOk(resultDeserialize, "Speed test: Deserialize");
-    }
-
-    // Calculate result
-    double serializeResult = 0;
-    for(const auto& time : serializeTime) serializeResult += static_cast<double>(time);
-    serializeResult /= ITERATIONS;
-
-    double deserializeResult = 0;
-    for(const auto& time : deserializeTime) deserializeResult += static_cast<double>(time);
-    deserializeResult /= ITERATIONS;
-
-    // Print result
-    std::cout << std::fixed << std::setprecision(2) << "Serializing took on average " << serializeResult
-              << " microseconds\nDeserializing took on average " << deserializeResult << " microseconds\n";
-}
+// NOLINTEND(*-non-private-*)
 
 int main() {
-    testSerialize();
-    testDeserialize();
+    testStringManipulation();
+    testPrimitiveConversions();
+    testComplexConversions();
+    testParsers();
+
+    testSerialPrimitive();
+    testSerialObject();
+    testSerialPointer();
+
+    testBasic();
+    testAllTypes();
     testNested();
-    testPointers();
-    testErrorDetection();
-    testNames();
-    testSpeed();
-    std::cout << "All tests passed!\n";
+
+    testFiles();
+    testErrors();
+
+    std::cout << "Test finished\n";
+    return 0;
 }

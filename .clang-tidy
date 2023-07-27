@@ -11,4 +11,6 @@ Checks: '
     -misc-no-recursion,
     -modernize-use-trailing-return-type,
     -readability-identifier-length,
+    -google-readability-todo,
+    -readability-use-anyofallof,
 '

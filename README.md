@@ -61,9 +61,10 @@ This is achieved by assigning every object that is serialized a _virtual address
 When deserialized, these virtual addresses get resolved to the new real address.
 Even though for most cases this approach does exactly what it is supposed to do, there are a few limitations/caveats:
 
-1. For every pointer that is serialized, the object pointed to also has to be serialized in the same invocation of the `serialize` function. Otherwise serializing the object will fail.
-2. Stored pointers lose their type. If the serialized data got corrupted or tampered with, deserializing a pointer might point you to a completely different type. You can prevent this by overriding the `classID` function.
-3. Usually when exposing a variable, it becomes valid (i.e. the new value) right after your call to the `expose` function. Not so for pointers though. Since a pointer can point to an object that has not been deserialized when the pointer is deserialized, all pointers are set after _all_ `expose` calls are processed.
+1. `nullptr` cannot be serialized, as their classID cannot be obtained.
+2. For every pointer that is serialized, the object pointed to also has to be serialized in the same invocation of the `serialize` function. Otherwise serializing the object will fail.
+3. Stored pointers lose their type. If the serialized data got corrupted or tampered with, deserializing a pointer might point you to a completely different type. You can prevent this by overriding the `classID` function.
+4. Usually when exposing a variable, it becomes valid (i.e. the new value) right after your call to the `expose` function. Not so for pointers though. Since a pointer can point to an object that has not been deserialized when the pointer is deserialized, all pointers are set after _all_ `expose` calls are processed.
 
 ## Usage
 
@@ -78,13 +79,12 @@ The `CMakeLists.txt` file is just used for building some tests.
 ### Quickstart
 
 For starters: Every data structure you wish to serialize has to extend the base class `serializable::Serializable`.
-Doing so will add five public member functions to your class:
+Doing so will add four public member functions to your class:
 
 1. `std::pair<Result, std::string> serialize()`: Runs the serialization and returns the result and the data, if it was successful.
-2. `Result check(const std::string&)`: Checks if the given string is syntactically correct. Is automatically performed by deserialize.
-3. `Result deserialize(const std::string&)`: Deserializes the given string into the class. Returns whether the deserialization was successful.
-4. `Result load(const std::filesystem::path&)`: Loads the given file and deserializes into the class. Returns whether the file could be loaded and deserialized.
-5. `Result save(const std::filesystem::path&)`: Serializes the class into the given file. Returns whether the file could be written to and the class could be serialized.
+2. `Result deserialize(const std::string&)`: Deserializes the given string into the class. Returns whether the deserialization was successful.
+3. `Result load(const std::filesystem::path&)`: Loads the given file and deserializes into the class. Returns whether the file could be loaded and deserialized.
+4. `Result save(const std::filesystem::path&)`: Serializes the class into the given file. Returns whether the file could be written to and the class could be serialized.
 
 Any class extending the `Serializable` class has to override an abstract method: `void exposed()`.
 This is where you declare which data you would like to be serialized/deserialized.
@@ -92,7 +92,7 @@ For every variable you want to serialize, you have to call `void expose(const st
 
 For `name` you can generally pass any string you want.
 It's a good idea to take the name of the variable, to avoid duplication and confusion.
-It's a bad idea to use strings containing `\n`, `=`, `(` or `)`, as this will confuse the parser.
+It's a bad idea to use strings containing `{`, `}`, `\n` and `=`, as this might confuse the parser.
 Every other name _should_ be fine though.
 
 For `value` you usually simply have to pass in the name of the variable - C++ will automatically pass it as a reference (as requested by the `expose` function).
@@ -106,7 +106,7 @@ Just keep in mind, that the `exposed` function is usually called twice per lifec
 
 If you are planning on serializing and deserializing pointers, you should also override the `unsigned int classID()` method.
 This method is supposed to return an unique (unsigned) integer for every class used to perform typechecking on serialized objects and pointers.
-You should not use the numbers 0 (default) and 1-3 (the provided serializable array, vector and list abstractions).
+You should not use 0 as this is the default for classes that don't implement this function.
 
 ### Documentation
 
@@ -115,7 +115,6 @@ You should not use the numbers 0 (default) and 1-3 (the provided serializable ar
 - `public: enum Result` An enum class containing the return codes for `OK` (no error), `FILE` (file not found/accessible), `STRUCTURE` (structural error in provided serial data), `TYPECHECK` (invalid value or pointer type mismatch), `INTEGRITY` (missing required value) and `POINTER` (invalid pointer).
 - `public: Serializable(...)` The class provides a default constructor (without arguments), the default copy constructor/assignment operator, a virtual default destructor and no move constructor/assignment operator.
 - `public: std::pair<Result, std::string> serialize()` Returns the serialization result and the serialized data. Result can only be `OK` or `POINTER`.
-- `public: Result check(const std::string&)` Return whether the given string contains valid serial data. Result can only be `OK` or `STRUCTURE`.
 - `public: Result deserialize(const std::string&)` Deserialize the given string into this class. Result can be anything except `FILE`.
 - `public: Result load(const std::filesystem::path&)` Tries to load the given file and deserialize its content into the class. Result can be anything.
 - `public: Result save(const std::filesystem::path&)` Tries to serialize the class into the given file. Result can be `OK`, `POINTER` or `FILE`.
@@ -132,42 +131,38 @@ You should not use the numbers 0 (default) and 1-3 (the provided serializable ar
 - `protected: void expose(const std::string&, unsigned long&)` Expose an unsigned long value.
 - `protected: void expose(const std::string&, float&)` Expose a float value.
 - `protected: void expose(const std::string&, double&)` Expose a double value.
+- `protected: template <Enum E> void expose(const std::string&, E&)` Expose an enum value.
 - `protected: void expose(const std::string&, std::string&)` Expose a string value.
 - `protected: void expose(const std::string&, Serializable&)` Expose a Serializable subclass.
-- `protected: template <Enum E> void expose(const std::string&, E&)` Expose an enum value.
-- `protected: template <SerializableChild S> void expose(const std::string&, S*&)` Expose a pointer to a serializable child object.
-
-#### Class serializable::Array
-
-This class extends `serializable::Serializable` and `std::array`.
-It overwrites the `expose` function with a useful implementation.
-Therefore it is a near-drop-in replacement for `std::array` that can be serialized.
-
-#### Class serializable::Vector
-
-This class extends `serializable::Serializable` and `std::vector`.
-It overwrites the `expose` function with a useful implementation.
-Therefore it is a near-drop-in replacement for `std::vector` that can be serialized.
-
-#### Class serializable::List
-
-This class extends `serializable::Serializable` and `std::list`.
-It overwrites the `expose` function with a useful implementation.
-Therefore it is a near-drop-in replacement for `std::list` that can be serialized.
+- `protected: template <typename S> requires std::is_base_of_v<Serializable, S> void expose(const std::string&, S*&)` Expose a pointer to a serializable child object.
 
 #### Aliases, Concepts and other Classes
 
 - `using detail::Address` A type alias for addresses.
-- `using detail::AddressMap` A type alias for an unordered map from address to address.
-- `using detail::Serializer<T>` A type alias for a function taking a `const T&` and returning a string.
-- `using detail::Deserializer<T>` A type alias for a function taking a `const string&` and returning an object of type T.
 - `concept detail::Enum` An enum type.
-- `concept detail::SerializableChild` A class deriving from `Serializable`.
-- `class detail::Serialized` An intermediate class for translating between a string and your class. Don't worry about it.
-- `std::string detail::replaceAll(const std::string&, const std::string&, const std::string&)` Replaces all occurrences of the second string in the first string with the third one.
-- `std::string detail::createString(const std::initializer_list<string>&)` Create a string from substrings.
-- `void detail::appendString(std::string&, const std::initializer_list<string>&)` Append strings to string.
-- `namespace detail::check` Contains functions for syntax checking.
+- `class detail::Serial` An intermediate class for translating between a string and your class. Don't worry about it.
+- `class detail::SerialPrimitive` An intermediate class for translating a primitive value between a string and your class.
+  - `enum detail::SerialPrimitive::Type` Type of a primitive value.
+- `class detail::SerialObject` An intermediate class for translating a subclass between a string and your class.
+- `class detail::SerialPointer` An intermediate class for translating a pointer between a string and your class.
+- `std::string detail::string::makeString(const std::initializer_list<std::string>&)` Builds a string from parts.
+- `std::string detail::string::substring(const std::string&, std::size_t, std::size_t)` Substring from start to end.
+- `std::string detail::string::replaceAll(const std::string&, const std::string&, const std::string&)` Replaces all occurrences of the second string in the first string with the third string.
+- `std::string detail::string::connect(const std::vector<std::string>&)` Combines a vector of lines into a single multiline string.
+- `std::vector<std::string> detail::string::split(const std::string&)` Splits a multiline string into a vector of lines. Keeps areas between curly brackets together.
+- `std::string detail::string::indent(const std::string&)` Indents every line in a string by one tab.
+- `std::string detail::string::unindent(const std::string&)` Removes one tab from every line in a string.
+- `std::string {primitive}ToString({primitive})` Converts a `{primitive}` to a string.
+- `std::optional<{primitive}> stringTo{Primitive}(const std::string&)` Converts a string to a `{primitive}`.
+- `std::string detail::string::encodeString(const std::string&)` Replaces unsafe characters (`"`, `\n`) in a string with safe versions.
+- `std::string detail::string::decodeString(const std::string&)` Replaces safe versions of unsafe characters with the original character.
+- `template <Enum E> std::string detail::string::enumToString(E)` Converts an enum to a string.
+- `template <Enum E> std::optional<E> detail::string::stringToEnum(const std::string&)` Converts a string to an enum.
+- `std::string detail::string::typeToString(SerialPrimitive::Type)` Returns a string representation of the type.
+- `SerialPrimitive::Type detail::string::stringToType(const std::string&)` Converts a string representation of a type the the type.
+- `std::optional<std::array<std::string, 3>> detail::string::parsePrimitive(const std::string&)` Parses a line of data as a primitive.
+- `std::optional<std::array<std::string, 4>> detail::string::parseObject(const std::string&)` Parses a block of data as an object.
+- `std::optional<std::array<std::string, 3>> detail::string::parsePointer(const std::string&)` Parses a line of data as a pointer.
 
 ### Save file syntax
 
@@ -175,24 +170,25 @@ The safe file contains one line per exposed field (the only exception being Seri
 
 ```EBNF
 file = object;
-object = 'OBJECT ', name, ' = ', address, ' (', class_id, ') {\n', {'\t', value, '\n'}, '}';
-name = char, {char};
-address = unum;
+object = 'OBJECT<', class_id, '> ', name, ' = ', address, ' {\n', {'\t', value, '\n'}, '}';
 class_id = unum;
-value = object | primitive;
-primitive = bool | signed | unsigned | floating | string | pointer;
-bool = 'BOOL ', name, ' = ', ('true' | 'false');
-signed = ('CHAR' | 'SHORT' | 'INT' | 'LONG'), ' ', name, ' = ', ['-'], unsigned;
-unsigned = ('UCHAR' | 'USHORT' | 'UINT' | 'ULONG' | 'ENUM'), ' ', name, ' = ', unum;
-floating = ('FLOAT' | 'DOUBLE'), ' ', name, ' = ', signed, '.', unsigned;
-string = 'STRING ', name, ' = ', '"', {strchar}, '"';
-pointer = 'PTR ', name, ' = ', unum, ' (', unum, ')';
+name = safe_char, {safe_char};
+address = unum;
+value = object | primitive | pointer;
+primitive = primitive_bool | primitive_number | primitive_string;
+pointer = 'PTR<', class_id, '> ', name, ' = ', address;
+primitive_bool = 'BOOL ', name, ' = ', ('true' | 'false');
+primitive_number = primitive_signed | primitive_unsigned | primitive_floating;
+primitive_string = 'STRING ', name, ' = "', {string_char}, '"';
+primitive_signed = ('CHAR' | 'SHORT' | 'INT' | 'LONG'), ' ', name, ' = ', ['-'], unum;
+primitive_unsigned = ('UCHAR' | 'USHORT' | 'UINT' | 'ULONG' | 'ENUM'), ' ', name, ' = ', unum;
+primitive_floating = ('FLOAT' | 'DOUBLE'), ' ', name, ' = ', ['-'], unum, '.', unum;
 
 unum = digit, {digit};
 
 digit = <any digit>;
-char = <any character except '\n', '=', '(' and ')'>;
-strchar = <any character except '\n' and '"'>;
+safe_char = <any character except curly brackets, newline, equals and space>;
+string_char = <any character except quotes and newlines>;
 ```
 
 Note that the save files are quite human-friendly.
