@@ -232,19 +232,7 @@ template <SerializableContainer S> class SerialContainer : public Serializable {
   public:
     explicit SerialContainer(S& value);
 
-    void exposed() override {
-        // Expose size
-        std::size_t size = value->size();
-        expose("size", size);
-
-        // Resize container if necessary and possible
-        if constexpr(requires { value->resize(size); }) {
-            if(size != value->size()) value->resize(size);
-        }
-
-        // Expose elements
-        for(std::size_t i = 0; i < size; ++i) expose(string::serializePrimitive(i), (*value)[i]);
-    }
+    void exposed() override;
 
   private:
     S* value;
@@ -1011,5 +999,19 @@ template <detail::SerializableContainer S> void Serializable::expose(const std::
 
 namespace detail {
 template <SerializableContainer S> SerialContainer<S>::SerialContainer(S& value) : value(&value) {}
+
+template <SerializableContainer S> void SerialContainer<S>::exposed() {
+    // Expose size
+    std::size_t size = value->size();
+    expose("size", size);
+
+    // Resize container if necessary and possible
+    if constexpr(requires { value->resize(size); }) {
+        if(size != value->size()) value->resize(size);
+    }
+
+    // Expose elements
+    for(std::size_t i = 0; i < size; ++i) expose(string::serializePrimitive(i), (*value)[i]);
+}
 } // namespace detail
 } // namespace serializable
