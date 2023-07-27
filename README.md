@@ -62,7 +62,7 @@ When deserialized, these virtual addresses get resolved to the new real address.
 Even though for most cases this approach does exactly what it is supposed to do, there are a few limitations/caveats:
 
 1. For every pointer that is serialized, the object pointed to also has to be serialized in the same invocation of the `serialize` function. Otherwise serializing the object will fail.
-2. Stored pointers lose their type. If the serialized data got corrupted or tampered with, deserializing a pointer might point you to a completely different type. To prevent this from happening you can override the `classID` method, which should return a unique ID for the current class. This ID will then be used to perform some basic type checking when deserializing pointers. Note that typechecking with a class ID is only possible, if the exposed pointer is not a `nullptr`. TLDR: Serializing pointers is to be used with caution.
+2. Stored pointers lose their type. If the serialized data got corrupted or tampered with, deserializing a pointer might point you to a completely different type. To prevent this from happening you can override the `classID` method, which should return a unique ID for the current class. This ID will then be used to perform some basic type checking when deserializing pointers. Still, this is no safety guarantee. TLDR: Serializing pointers is to be used with caution.
 3. Usually when exposing a variable, it becomes valid (i.e. the new value) right after your call to the `expose` function. Not so for pointers though. Since a pointer can point to an object that has not been deserialized when the pointer is deserialized, all pointers are set after _all_ `expose` calls are processed.
 
 ## Usage
@@ -157,13 +157,13 @@ Therefore it is a near-drop-in replacement for `std::list` that can be serialize
 
 #### Aliases, Concepts and other Classes
 
-- `using Address` A type alias for addresses.
-- `using AddressMap` A type alias for an unordered map from address to address.
-- `using Serializer<T>` A type alias for a function taking a `const T&` and returning a string.
-- `using Deserializer<T>` A type alias for a function taking a `const string&` and returning an object of type T.
-- `concept Enum` An enum type.
-- `concept SerializableChild` A class deriving from `Serializable`.
-- `class Serialized` An intermediate class for translating between a string and your class. Don't worry about it.
+- `using detail::Address` A type alias for addresses.
+- `using detail::AddressMap` A type alias for an unordered map from address to address.
+- `using detail::Serializer<T>` A type alias for a function taking a `const T&` and returning a string.
+- `using detail::Deserializer<T>` A type alias for a function taking a `const string&` and returning an object of type T.
+- `concept detail::Enum` An enum type.
+- `concept detail::SerializableChild` A class deriving from `Serializable`.
+- `class detail::Serialized` An intermediate class for translating between a string and your class. Don't worry about it.
 
 ### Save file syntax
 
@@ -205,5 +205,5 @@ The only non-trivial\* requirement I have is that the library has to stay a (sin
 
 - This library requires C++ >= 20
 - Note that all classes using this serialization have to have a default value. Loading in the context of this library means you _overwrite_ existing data, not _create_ new data (that is why I usually call the process deserializing _into_ a class). First create default data, then (try to) overwrite it with stored data.
-- About runtime. Serializing data just has to append the data it gets to a string, hence `serialize` runs in O(n). The problem with deserialization is that you cannot guarantee to get the serialized data in the same order as you serialized it. Therefor the serialized string is first parsed and inserted into a `std::unordered_map` which is then queried for variables. _Usually_ querying an unordered map runs in constant time, which would make `deserialize` also run in O(n) (Technically O(n\*d) where d is the maximum nesting depth, as the data of an object is processed by all parents above). In a runtime test (on my machine), for an array containing (1, 10, ..., 1000000) Elements, `deserialize` took (17.8, 6.2, 5.6, 5.7, 5.6, 5.2, 4.2) times as long than `serialize`. The factor _appears_ to converge to somewhere around 5.
+- About runtime. Serializing data just has to append the data it gets to a string, hence `serialize` runs in O(n). The problem with deserialization is that you cannot guarantee to get the serialized data in the same order as you serialized it. Therefor the serialized string is first parsed and inserted into a `std::unordered_map` which is then queried for variables. _Usually_ querying an unordered map runs in constant time, which would make `deserialize` also run in O(n) (Technically O(n\*d) where d is the maximum nesting depth, as the data of an object is processed by all parents above).
 - All files in this repo (except the `serializable.hpp`) can safely be ignored: They are just meta-files, IDE settings and tests. Speaking about tests: I know, the tests implemented in the `main.cpp` file are as bad as I earlier on described my previous pseudo-stable serializers, but they are good enough for what they have to do. So don't judge me for the tests, judge me for the library. Also if you have an afternoon to spare, I would love to see proper testing some day.

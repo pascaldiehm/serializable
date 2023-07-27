@@ -1,14 +1,15 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <bit>
+#include <cctype>
 #include <cstddef>
 #include <exception>
 #include <filesystem>
 #include <fstream>
 #include <list>
 #include <optional>
-#include <regex>
 #include <sstream>
 #include <string>
 #include <type_traits>
@@ -19,6 +20,7 @@
 namespace serializable {
 class Serializable;
 
+namespace detail {
 using Address    = std::size_t;
 using AddressMap = std::unordered_map<Address, Address>;
 
@@ -37,7 +39,7 @@ class Serialized {
     void deserialize(const std::string& data);
 
     void setObject(const std::string& name, Address address, unsigned int id);
-    void addChild(Serialized serialized);
+    void addChild(const Serialized& serialized);
     void setPrimitive(const std::string& type, const std::string& name, const std::string& value);
     void setPointer(const std::string& name, Address address, unsigned int id);
 
@@ -46,7 +48,6 @@ class Serialized {
     template <typename T> [[nodiscard]] T getValue(Deserializer<T> deserializer) const;
     std::optional<Serialized> getChild(const std::string& name);
     [[nodiscard]] bool isObject(unsigned int id) const;
-    [[nodiscard]] bool isPointer() const;
     [[nodiscard]] bool isPointer(unsigned int id) const;
 
     [[nodiscard]] Address getAddress() const;
@@ -60,6 +61,369 @@ class Serialized {
 
     static std::vector<std::string> parseChildrenData(const std::string& object);
 };
+
+inline std::string replaceAll(const std::string& str, const std::string& from, const std::string& to) {
+    // Calculate matches
+    std::size_t matches = 0;
+    std::size_t pos     = 0;
+    while((pos = str.find(from, pos)) != std::string::npos) {
+        matches++;
+        pos += from.length();
+    }
+
+    // Generate new string
+    std::string replaced;
+    replaced.reserve(str.size() + matches * (to.size() - from.size()));
+    pos = 0;
+    while(true) {
+        const std::size_t match = str.find(from, pos);
+        replaced.append(str.substr(pos, match - pos));
+
+        if(match == std::string::npos) break;
+        replaced.append(to);
+
+        pos = match + from.size();
+    }
+
+    return replaced;
+}
+
+inline std::string Serialized::serialize() const {
+    // Construct object
+    if(type == "OBJECT") {
+        std::string data = std::string("OBJECT ")
+                               .append(name)
+                               .append(" = ")
+                               .append(std::to_string(address))
+                               .append(" (")
+                               .append(std::to_string(classId))
+                               .append(") {\n");
+
+        for(const auto& [_, child] : children)
+            data.append(replaceAll(child.serialize(), "\n", "\n\t").insert(0, "\t").append("\n"));
+
+        return data.append("}");
+    }
+
+    // Construct primitive value
+    if(type != "PTR") return std::string(type).append(" ").append(name).append(" = ").append(value);
+
+    // Construct pointer value
+    return std::string(type)
+        .append(" ")
+        .append(name)
+        .append(" = ")
+        .append(std::to_string(address))
+        .append(" (")
+        .append(std::to_string(classId))
+        .append(")");
+}
+
+inline void Serialized::deserialize(const std::string& data) {
+    if(data.starts_with("OBJECT")) {
+        // Parse data, REGEX: OBJECT (.+) = (\d+) (\(\d+\)) {
+        const std::size_t bracket = data.find('\n') - 1;
+        const std::string header  = data.substr(0, bracket - 1);
+
+        const std::size_t equals  = header.find('=');
+        const std::size_t opening = header.find('(');
+        const std::size_t closing = header.find(')');
+        const std::string name    = header.substr(7, equals - 8);
+        const std::string address = header.substr(equals + 2, opening - equals - 3);
+        const std::string id      = header.substr(opening + 1, closing - opening - 1);
+
+        // Set as object
+        setObject(name, std::stoul(address), std::stoul(id));
+
+        // Parse children
+        const auto childrenData = parseChildrenData(data.substr(bracket));
+        for(const auto& childData : childrenData) {
+            Serialized child;
+            child.deserialize(childData);
+            addChild(child);
+        }
+    } else if(data.starts_with("PTR")) {
+        // Parse data, REGEX: PTR (.+) = (\d+) (\(\d+\))
+        const std::size_t equals  = data.find('=');
+        const std::size_t opening = data.find('(');
+        const std::size_t closing = data.find(')');
+        const std::string name    = data.substr(4, equals - 5);
+        const std::string address = data.substr(equals + 2, opening - equals - 3);
+        const std::string id      = data.substr(opening + 1, closing - opening - 1);
+
+        // Set data
+        setPointer(name, std::stoul(address), std::stoul(id));
+    } else if(!data.empty()) {
+        // Parse data, REGEX: ([A-Z]+) (.+) = (.+)
+        const std::size_t space  = data.find(' ');
+        const std::size_t equals = data.find('=');
+        const std::string type   = data.substr(0, space);
+        const std::string name   = data.substr(space + 1, equals - space - 2);
+        const std::string value  = data.substr(equals + 2);
+
+        // Set data
+        setPrimitive(type, name, value);
+    }
+}
+
+inline void Serialized::setObject(const std::string& name, Address address, unsigned int id) {
+    this->name    = name;
+    this->address = address;
+    this->classId = id;
+    this->type    = "OBJECT";
+    this->children.clear();
+}
+
+inline void Serialized::addChild(const Serialized& serialized) { this->children[serialized.name] = serialized; }
+
+inline void Serialized::setPrimitive(const std::string& type, const std::string& name, const std::string& value) {
+    this->type  = type;
+    this->name  = name;
+    this->value = value;
+}
+
+inline void Serialized::setPointer(const std::string& name, Address address, unsigned int id) {
+    this->name    = name;
+    this->address = address;
+    this->classId = id;
+    this->type    = "PTR";
+}
+
+inline Address Serialized::getAddress() const { return address; }
+
+inline bool Serialized::setAddresses(AddressMap* map) {
+    // If pointer: Replace address
+    if(type == "PTR") {
+        if(!map->contains(address)) return false;
+        address = (*map)[address];
+        return true;
+    }
+
+    // If object: Apply to all children, fail if one fails
+    if(type == "OBJECT") {
+        for(auto& [_, child] : children)
+            if(!child.setAddresses(map)) return false;
+        return true;
+    }
+
+    // Otherwise ignore
+    return true;
+}
+
+template <typename T>
+inline bool Serialized::checkType(const std::string& type, Serializer<T> serializer,
+                                  Deserializer<T> deserializer) const {
+    // Check if type name matches
+    if(this->type != type) return false;
+
+    // Try to deserialize and check consistency
+    try {
+        T t = deserializer(value);
+        return value == serializer(t);
+    } catch(std::exception& exception) { return false; }
+}
+
+template <typename T> inline T Serialized::getValue(Deserializer<T> deserializer) const { return deserializer(value); }
+
+inline std::optional<Serialized> Serialized::getChild(const std::string& name) {
+    if(children.contains(name)) return children[name];
+    return std::nullopt;
+}
+
+inline bool Serialized::isObject(unsigned int id) const { return type == "OBJECT" && classId == id; }
+
+inline bool Serialized::isPointer(unsigned int id) const { return type == "PTR" && classId == id; }
+
+inline std::vector<std::string> Serialized::parseChildrenData(const std::string& object) {
+    // Create vector
+    std::vector<std::string> children;
+
+    // Strip data
+    std::string data = replaceAll(object, "\n\t", "\n");
+    if(data == "{\n}") return children;      // Base case: Empty object
+    data.erase(0, 2).erase(data.size() - 2); // Remove brackets and newline on both sides
+
+    // Parse lines
+    std::size_t pos = 0;
+    while(true) {
+        // Get line
+        const std::size_t end  = data.find('\n', pos);
+        const std::string line = data.substr(pos, end - pos);
+
+        // If line starts with tab or bracket, add to last child, otherwise create new child
+        if(line.starts_with('\t') || line.starts_with('}')) children.back().append("\n").append(line);
+        else children.push_back(line);
+
+        // Advance pos
+        if(end == std::string::npos) break;
+        pos = end + 1;
+    }
+
+    return children;
+}
+
+namespace check {
+inline std::string getType(const std::string& str) {
+    if(str == "CHAR") return "SIGNED";
+    if(str == "SHORT") return "SIGNED";
+    if(str == "INT") return "SIGNED";
+    if(str == "LONG") return "SIGNED";
+    if(str == "UCHAR") return "UNSIGNED";
+    if(str == "USHORT") return "UNSIGNED";
+    if(str == "UINT") return "UNSIGNED";
+    if(str == "ULONG") return "UNSIGNED";
+    if(str == "ENUM") return "UNSIGNED";
+    if(str == "FLOAT") return "FLOATING";
+    if(str == "DOUBLE") return "FLOATING";
+    return "INVALID";
+}
+
+inline bool isName(const std::string& str) {
+    return !str.empty() &&
+           !std::any_of(str.begin(), str.end(), [](char c) { return c == '\n' || c == '=' || c == '(' || c == ')'; });
+}
+
+inline bool isBool(const std::string& str) { return str == "true" || str == "false"; }
+
+inline bool isUnsignedNumber(const std::string& str) {
+    return !str.empty() && std::all_of(str.begin(), str.end(), [](char c) { return std::isdigit(c) != 0; });
+}
+
+inline bool isSignedNumber(const std::string& str) {
+    if(str.starts_with('-')) return isUnsignedNumber(str.substr(1));
+    return isUnsignedNumber(str);
+}
+
+inline bool isFloatingNumber(const std::string& str) {
+    const std::size_t point = str.find('.');
+    if(point == std::string::npos) return false;
+    if(str.size() < point + 2) return false;
+    return isSignedNumber(str.substr(0, point)) && isUnsignedNumber(str.substr(point + 1));
+}
+
+inline bool atString(const std::string& str, std::size_t pos, const std::string& match) {
+    if(str.size() < pos + match.size()) return false;
+    return str.substr(pos, match.size()) == match;
+}
+
+inline std::string substring(const std::string& str, std::size_t start, std::size_t end) {
+    return str.substr(start, end - start);
+}
+
+inline bool matchObject(const std::string& str) { // REGEX: OBJECT .+ = \d+ \(\d+\) \{
+    const std::size_t equals  = str.find('=');
+    const std::size_t opening = str.find('(');
+    const std::size_t closing = str.find(')');
+
+    if(equals == std::string::npos) return false;
+    if(opening == std::string::npos) return false;
+    if(closing == std::string::npos) return false;
+    if(!atString(str, 0, "OBJECT ")) return false;                               // Match 'OBJECT '
+    if(!isName(substring(str, 7, equals - 1))) return false;                     // Match name
+    if(!atString(str, equals - 1, " = ")) return false;                          // Match ' = '
+    if(!isUnsignedNumber(substring(str, equals + 2, opening - 1))) return false; // Match address
+    if(!atString(str, opening - 1, " (")) return false;                          // Match ' ('
+    if(!isUnsignedNumber(substring(str, opening + 1, closing))) return false;    // Match type
+    if(!atString(str, closing, ") {")) return false;                             // Match ') {'
+    if(str.size() > closing + 3) return false;                                   // Match end
+
+    return true;
+}
+
+inline bool matchBoolean(const std::string& str) { // REGEX: BOOL .+ = (true|false)
+    const std::size_t equals = str.find('=');
+
+    if(equals == std::string::npos) return false;
+    if(!atString(str, 0, "BOOL ")) return false;                      // Match 'BOOL '
+    if(!isName(substring(str, 5, equals - 1))) return false;          // Match name
+    if(!atString(str, equals - 1, " = ")) return false;               // Match ' = '
+    if(!isBool(substring(str, equals + 2, str.size()))) return false; // Match value to end
+
+    return true;
+}
+
+inline bool matchSigned(const std::string& str) { // REGEX: (CHAR|SHORT|INT|LONG) .+ = -?\d+
+    if(!str.starts_with("CHAR") && !str.starts_with("SHORT") && !str.starts_with("INT") && !str.starts_with("LONG"))
+        return false;
+
+    const std::size_t space  = str.find(' ');
+    const std::size_t equals = str.find('=');
+
+    if(space == std::string::npos) return false;
+    if(equals == std::string::npos) return false;
+    if(getType(substring(str, 0, space)) != "SIGNED") return false;           // Match type
+    if(!atString(str, space, " ")) return false;                              // Match ' '
+    if(!isName(substring(str, space + 1, equals - 1))) return false;          // Match name
+    if(!atString(str, equals - 1, " = ")) return false;                       // Match ' = '
+    if(!isSignedNumber(substring(str, equals + 2, str.size()))) return false; // Match value to end
+
+    return true;
+}
+
+inline bool matchUnsigned(const std::string& str) { // REGEX: (UCHAR|USHORT|UINT|ULONG|ENUM) .+ = \d+
+    const std::size_t space  = str.find(' ');
+    const std::size_t equals = str.find('=');
+
+    if(space == std::string::npos) return false;
+    if(equals == std::string::npos) return false;
+    if(getType(substring(str, 0, space)) != "UNSIGNED") return false;           // Match type
+    if(!atString(str, space, " ")) return false;                                // Match ' '
+    if(!isName(substring(str, space + 1, equals - 1))) return false;            // Match name
+    if(!atString(str, equals - 1, " = ")) return false;                         // Match ' = '
+    if(!isUnsignedNumber(substring(str, equals + 2, str.size()))) return false; // Match value to end
+
+    return true;
+}
+
+inline bool matchFloating(const std::string& str) { // REGEX: (FLOAT|DOUBLE) .+ = -?\d+\.\d+
+    const std::size_t space  = str.find(' ');
+    const std::size_t equals = str.find('=');
+
+    if(space == std::string::npos) return false;
+    if(equals == std::string::npos) return false;
+    if(getType(substring(str, 0, space)) != "FLOATING") return false;           // Match type
+    if(!atString(str, space, " ")) return false;                                // Match ' '
+    if(!isName(substring(str, space + 1, equals - 1))) return false;            // Match name
+    if(!atString(str, equals - 1, " = ")) return false;                         // Match ' = '
+    if(!isFloatingNumber(substring(str, equals + 2, str.size()))) return false; // Match value to end
+
+    return true;
+}
+
+inline bool matchString(const std::string& str) { // REGEX: STRING .+ = \".*\"
+    const std::size_t equals = str.find('=');
+
+    if(equals == std::string::npos) return false;
+    if(!atString(str, 0, "STRING ")) return false;                                              // Match 'STRING '
+    if(!isName(substring(str, 7, equals - 1))) return false;                                    // Match name
+    if(!atString(str, equals - 1, " = \"")) return false;                                       // Match ' = "'
+    if(substring(str, equals + 3, str.size() - 1).find('"') != std::string::npos) return false; // Match value
+    if(!atString(str, str.size() - 1, "\"")) return false;                                      // Match '"' at end
+
+    return true;
+}
+
+inline bool matchPointer(const std::string& str) { // REGEX: PTR .+ = \d+ \(\d+\)
+    const std::size_t equals  = str.find('=');
+    const std::size_t opening = str.find('(');
+    const std::size_t closing = str.find(')');
+
+    if(equals == std::string::npos) return false;
+    if(opening == std::string::npos) return false;
+    if(closing == std::string::npos) return false;
+    if(!atString(str, 0, "PTR ")) return false;                                  // Match 'PTR '
+    if(!isName(substring(str, 4, equals - 1))) return false;                     // Match name
+    if(!atString(str, equals - 1, " = ")) return false;                          // Match ' = '
+    if(!isUnsignedNumber(substring(str, equals + 2, opening - 1))) return false; // Match address
+    if(!atString(str, opening - 1, " (")) return false;                          // Match ' ('
+    if(!isUnsignedNumber(substring(str, opening + 1, closing))) return false;    // Match type
+    if(!atString(str, closing, ")")) return false;                               // Match ') {'
+    if(str.size() > closing + 1) return false;                                   // Match end
+
+    return true;
+}
+} // namespace check
+} // namespace detail
 
 class Serializable {
   public:
@@ -82,32 +446,33 @@ class Serializable {
     virtual void exposed() = 0;
     virtual unsigned int classID() const;
 
-    void expose(const char* name, bool& value);
-    void expose(const char* name, char& value);
-    void expose(const char* name, unsigned char& value);
-    void expose(const char* name, short& value);
-    void expose(const char* name, unsigned short& value);
-    void expose(const char* name, int& value);
-    void expose(const char* name, unsigned int& value);
-    void expose(const char* name, long& value);
-    void expose(const char* name, unsigned long& value);
-    void expose(const char* name, float& value);
-    void expose(const char* name, double& value);
-    void expose(const char* name, std::string& value);
-    void expose(const char* name, Serializable& value);
+    void expose(const std::string& name, bool& value);
+    void expose(const std::string& name, char& value);
+    void expose(const std::string& name, unsigned char& value);
+    void expose(const std::string& name, short& value);
+    void expose(const std::string& name, unsigned short& value);
+    void expose(const std::string& name, int& value);
+    void expose(const std::string& name, unsigned int& value);
+    void expose(const std::string& name, long& value);
+    void expose(const std::string& name, unsigned long& value);
+    void expose(const std::string& name, float& value);
+    void expose(const std::string& name, double& value);
+    void expose(const std::string& name, std::string& value);
+    void expose(const std::string& name, Serializable& value);
 
-    template <Enum E> void expose(const char* name, E& value);
-    template <SerializableChild S> void expose(const char* name, S*& value);
+    template <detail::Enum E> void expose(const std::string& name, E& value);
+    template <detail::SerializableChild S> void expose(const std::string& name, S*& value);
 
   private:
     enum class Action { IDLE, SERIALIZE, DESERIALIZE } action{Action::IDLE};
     Result result{Result::OK};
-    Serialized serialized;
-    AddressMap *addressTable{}, *pointerTable{};
-    std::unordered_map<Address, unsigned int>* pointerTypes{};
+    detail::Serialized serialized;
+    detail::AddressMap *addressTable{}, *pointerTable{};
+    std::unordered_map<detail::Address, unsigned int>* pointerTypes{};
 
     template <typename T>
-    void expose(const char* type, const char* name, T& value, Serializer<T> serializer, Deserializer<T> deserializer);
+    void expose(const std::string& type, const std::string& name, T& value, detail::Serializer<T> serializer,
+                detail::Deserializer<T> deserializer);
 };
 
 template <typename T, std::size_t size> class Array : public Serializable, public std::array<T, size> {
@@ -156,192 +521,13 @@ template <typename T> class List : public Serializable, public std::list<T> {
     unsigned int classID() const override { return 3; }
 };
 
-inline std::string Serialized::serialize() const {
-    static const std::regex matchNewline("\n");
-
-    // Construct object
-    if(type == "OBJECT") {
-        std::string data = std::string("OBJECT ")
-                               .append(name)
-                               .append(" = ")
-                               .append(std::to_string(address))
-                               .append(" (")
-                               .append(std::to_string(classId))
-                               .append(") {\n");
-        for(const auto& [_, child] : children)
-            data.append("\t").append(std::regex_replace(child.serialize(), matchNewline, "\n\t")).append("\n");
-        return data.append("}");
-    }
-
-    // Construct primitive value
-    if(type != "PTR") return std::string(type).append(" ").append(name).append(" = ").append(value);
-
-    // Construct pointer value
-    return std::string(type)
-        .append(" ")
-        .append(name)
-        .append(" = ")
-        .append(std::to_string(address))
-        .append(" (")
-        .append(std::to_string(classId))
-        .append(")");
-}
-
-inline void Serialized::deserialize(const std::string& data) {
-    // Create regex parsers
-    static const std::regex parseObjectHeader(R"(OBJECT (.+) = (\d+) \((\d+)\))");
-    static const std::regex parsePointerData(R"(PTR (.+) = (\d+) \((\d+)\))");
-    static const std::regex parsePrimitiveData("([A-Z]+) (.+) = (.+)");
-
-    if(data.starts_with("OBJECT")) {
-        const std::size_t bracket = data.find('{');
-        const std::string header  = data.substr(0, bracket - 1);
-        const std::string name    = std::regex_replace(header, parseObjectHeader, "$1");
-        const std::string address = std::regex_replace(header, parseObjectHeader, "$2");
-        const std::string id      = std::regex_replace(header, parseObjectHeader, "$3");
-
-        // Set as object
-        setObject(name, std::stoul(address), std::stoul(id));
-
-        // Parse children
-        const auto childrenData = parseChildrenData(data.substr(bracket));
-        for(const auto& childData : childrenData) {
-            Serialized child;
-            child.deserialize(childData);
-            addChild(child);
-        }
-    } else if(data.starts_with("PTR")) {
-        // Parse data
-        const std::string name    = std::regex_replace(data, parsePointerData, "$1");
-        const std::string address = std::regex_replace(data, parsePointerData, "$2");
-        const std::string id      = std::regex_replace(data, parsePointerData, "$3");
-
-        // Set data
-        setPointer(name, std::stoul(address), std::stoul(id));
-    } else {
-        // Parse data
-        const std::string type  = std::regex_replace(data, parsePrimitiveData, "$1");
-        const std::string name  = std::regex_replace(data, parsePrimitiveData, "$2");
-        const std::string value = std::regex_replace(data, parsePrimitiveData, "$3");
-
-        // Set data
-        setPrimitive(type, name, value);
-    }
-}
-
-inline void Serialized::setObject(const std::string& name, Address address, unsigned int id) {
-    this->name    = name;
-    this->address = address;
-    this->classId = id;
-    this->type    = "OBJECT";
-    this->value   = "";
-    this->children.clear();
-}
-
-inline void Serialized::addChild(Serialized serialized) { this->children[serialized.name] = std::move(serialized); }
-
-inline void Serialized::setPrimitive(const std::string& type, const std::string& name, const std::string& value) {
-    this->type    = type;
-    this->name    = name;
-    this->value   = value;
-    this->classId = 0;
-    this->address = 0;
-    this->children.clear();
-}
-
-inline void Serialized::setPointer(const std::string& name, Address address, unsigned int id) {
-    this->name    = name;
-    this->address = address;
-    this->classId = id;
-    this->type    = "PTR";
-    this->value   = "";
-    this->children.clear();
-}
-
-inline Address Serialized::getAddress() const { return address; }
-
-inline bool Serialized::setAddresses(AddressMap* map) {
-    // If pointer: Replace address
-    if(type == "PTR") {
-        if(!map->contains(address)) return false;
-        address = (*map)[address];
-        return true;
-    }
-
-    // If object: Apply to all children, fail if one fails
-    if(type == "OBJECT") {
-        for(auto& [_, child] : children)
-            if(!child.setAddresses(map)) return false;
-        return true;
-    }
-
-    // Otherwise ignore
-    return true;
-}
-
-template <typename T>
-inline bool Serialized::checkType(const std::string& type, Serializer<T> serializer,
-                                  Deserializer<T> deserializer) const {
-    // Check if type name matches
-    if(this->type != type) return false;
-
-    // Try to deserialize and check consistency
-    try {
-        T t = deserializer(value);
-        return value == serializer(t);
-    } catch(std::exception& exception) { return false; }
-}
-
-template <typename T> inline T Serialized::getValue(Deserializer<T> deserializer) const { return deserializer(value); }
-
-inline std::optional<Serialized> Serialized::getChild(const std::string& name) {
-    if(children.contains(name)) return children[name];
-    return std::nullopt;
-}
-
-inline bool Serialized::isObject(unsigned int id) const { return type == "OBJECT" && classId == id; }
-
-inline bool Serialized::isPointer() const { return type == "PTR"; }
-
-inline bool Serialized::isPointer(unsigned int id) const { return type == "PTR" && classId == id; }
-
-inline std::vector<std::string> Serialized::parseChildrenData(const std::string& object) {
-    static const std::regex matchNewlineTab("\n\t");
-
-    // Create vector
-    std::vector<std::string> children;
-
-    // Strip data
-    std::string data = std::regex_replace(object, matchNewlineTab, "\n"); /// Remove one level of indentation
-    if(data == "{\n}") return children;                                   // Base case: Empty object
-    data = data.substr(2, data.size() - 4);                               // Remove brackets and newline on both sides
-
-    // Parse lines
-    std::size_t pos = 0;
-    while(pos != std::string::npos) {
-        // Get line
-        const std::size_t end  = data.find('\n', pos);
-        const std::string line = data.substr(pos, end - pos);
-
-        // If line starts with tab or bracket, add to last child, otherwise create new child
-        if(line.starts_with('\t') || line.starts_with('}')) children.back().append("\n").append(line);
-        else children.push_back(line);
-
-        // Advance pos
-        if(end == std::string::npos) break;
-        pos = end + 1;
-    }
-
-    return children;
-}
-
 inline std::pair<Serializable::Result, std::string> Serializable::serialize() {
     // Create address map
-    AddressMap addresses;
+    detail::AddressMap addresses;
     addressTable = &addresses;
 
     // Register own address
-    const auto address = std::bit_cast<Address>(this);
+    const auto address = std::bit_cast<detail::Address>(this);
     addresses[address] = 0;
 
     // Setup serialized data
@@ -357,22 +543,11 @@ inline std::pair<Serializable::Result, std::string> Serializable::serialize() {
     if(!serialized.setAddresses(addressTable)) result = Result::POINTER;
     addressTable = nullptr;
 
-    // Write serialized data to target
-    std::string data = serialized.serialize();
-
-    return {result, data};
+    // Return result and serialized data
+    return {result, result == Result::OK ? serialized.serialize() : ""};
 }
 
 inline Serializable::Result Serializable::check(const std::string& data) { // NOLINT(*-cognitive-complexity)
-    // Create regex matchers
-    static const std::regex matchObject(R"(OBJECT .+ = (\d+) \(\d+\) \{)");
-    static const std::regex matchBoolean("(BOOL) .+ = (true|false)");
-    static const std::regex matchSigned("(CHAR|SHORT|INT|LONG) .+ = (-?\\d+)");
-    static const std::regex matchUnsigned("(UCHAR|USHORT|UINT|ULONG|ENUM) .+ = (\\d+)");
-    static const std::regex matchFloating(R"((FLOAT|DOUBLE) .+ = (-?\d+\.\d+))");
-    static const std::regex matchString("(STRING) .+ = (\".*\")");
-    static const std::regex matchPointer(R"(PTR .+ = (\d+) \(\d+\))");
-
     // Split string into vector of lines
     std::vector<std::string> lines;
     std::stringstream stream(data);
@@ -392,22 +567,22 @@ inline Serializable::Result Serializable::check(const std::string& data) { // NO
 
         // Check and remove tabs
         if(!line.starts_with(std::string(depth, '\t'))) return Result::STRUCTURE;
-        line = line.substr(depth);
+        line.erase(0, depth);
 
         // Parse objects
         if(line.starts_with("OBJECT")) {
-            if(!std::regex_match(line, matchObject)) return Result::STRUCTURE;
+            if(!detail::check::matchObject(line)) return Result::STRUCTURE;
             depth++;
             continue;
         }
 
         // Parse primitive types
-        if(std::regex_match(line, matchBoolean)) continue;
-        if(std::regex_match(line, matchSigned)) continue;
-        if(std::regex_match(line, matchUnsigned)) continue;
-        if(std::regex_match(line, matchFloating)) continue;
-        if(std::regex_match(line, matchString)) continue;
-        if(std::regex_match(line, matchPointer)) continue;
+        if(detail::check::matchBoolean(line)) continue;
+        if(detail::check::matchSigned(line)) continue;
+        if(detail::check::matchUnsigned(line)) continue;
+        if(detail::check::matchFloating(line)) continue;
+        if(detail::check::matchString(line)) continue;
+        if(detail::check::matchPointer(line)) continue;
 
         // Not a valid type
         return Result::STRUCTURE;
@@ -426,15 +601,15 @@ inline Serializable::Result Serializable::deserialize(const std::string& data) {
     serialized.deserialize(data);
 
     // Create address maps
-    AddressMap addresses;
-    AddressMap pointers;
-    std::unordered_map<Address, unsigned int> types;
+    detail::AddressMap addresses;
+    detail::AddressMap pointers;
+    std::unordered_map<detail::Address, unsigned int> types;
     addressTable = &addresses;
     pointerTable = &pointers;
     pointerTypes = &types;
 
     // Register own address
-    const auto address = std::bit_cast<Address>(this);
+    const auto address = std::bit_cast<detail::Address>(this);
     addresses[0]       = address;
 
     // Expose fields
@@ -446,24 +621,25 @@ inline Serializable::Result Serializable::deserialize(const std::string& data) {
     // Check for root object type
     if(!serialized.isObject(classID())) result = Result::TYPECHECK;
 
-    // Apply addresses
-    for(auto& [ptr, virt] : pointers) {
-        // Check if virtual address is resolved
-        if(!addresses.contains(virt)) {
-            result = Result::POINTER;
-            break;
-        }
+    // Apply addresses (skip if error state)
+    if(result == Result::OK)
+        for(auto& [ptr, virt] : pointers) {
+            // Check if virtual address is resolved
+            if(!addresses.contains(virt)) {
+                result = Result::POINTER;
+                break;
+            }
 
-        // Get object and check classId
-        auto* object = std::bit_cast<Serializable*>(addresses[virt]);
-        if(types[ptr] != object->classID()) {
-            result = Result::TYPECHECK;
-            break;
-        }
+            // Get object and check classId
+            auto* object = std::bit_cast<Serializable*>(addresses[virt]);
+            if(types[ptr] != object->classID()) {
+                result = Result::TYPECHECK;
+                break;
+            }
 
-        // Assign pointer
-        (*std::bit_cast<Serializable**>(ptr)) = object;
-    }
+            // Assign pointer
+            (*std::bit_cast<Serializable**>(ptr)) = object;
+        }
 
     // Unset address and pointer map
     addressTable = nullptr;
@@ -508,107 +684,101 @@ inline Serializable::Result Serializable::load(const std::filesystem::path& file
 
 inline unsigned int Serializable::classID() const { return 0; }
 
-inline void Serializable::expose(const char* name, bool& value) {
-    const constexpr Serializer<bool> S   = [](const auto& val) { return std::string(val ? "true" : "false"); };
-    const constexpr Deserializer<bool> D = [](const auto& val) { return val == "true"; };
+inline void Serializable::expose(const std::string& name, bool& value) {
+    static detail::Serializer<bool> S   = [](const auto& val) { return std::string(val ? "true" : "false"); };
+    static detail::Deserializer<bool> D = [](const auto& val) { return val == "true"; };
     expose("BOOL", name, value, S, D);
 }
 
-inline void Serializable::expose(const char* name, char& value) {
-    const constexpr Serializer<char> S   = [](const auto& val) { return std::to_string(val); };
-    const constexpr Deserializer<char> D = [](const auto& val) { return static_cast<char>(std::stoi(val)); };
+inline void Serializable::expose(const std::string& name, char& value) {
+    static detail::Serializer<char> S   = [](const auto& val) { return std::to_string(val); };
+    static detail::Deserializer<char> D = [](const auto& val) { return static_cast<char>(std::stoi(val)); };
     expose("CHAR", name, value, S, D);
 }
 
-inline void Serializable::expose(const char* name, unsigned char& value) {
-    using uchar = unsigned char;
+inline void Serializable::expose(const std::string& name, unsigned char& value) {
+    using T = unsigned char;
 
-    const constexpr Serializer<uchar> S   = [](const auto& val) { return std::to_string(val); };
-    const constexpr Deserializer<uchar> D = [](const auto& val) { return static_cast<uchar>(std::stoi(val)); };
+    static detail::Serializer<T> S   = [](const auto& val) { return std::to_string(val); };
+    static detail::Deserializer<T> D = [](const auto& val) { return static_cast<T>(std::stoi(val)); };
     expose("UCHAR", name, value, S, D);
 }
 
-inline void Serializable::expose(const char* name, short& value) {
-    const constexpr Serializer<short> S   = [](const auto& val) { return std::to_string(val); };
-    const constexpr Deserializer<short> D = [](const auto& val) { return static_cast<short>(std::stoi(val)); };
+inline void Serializable::expose(const std::string& name, short& value) {
+    static detail::Serializer<short> S   = [](const auto& val) { return std::to_string(val); };
+    static detail::Deserializer<short> D = [](const auto& val) { return static_cast<short>(std::stoi(val)); };
     expose("SHORT", name, value, S, D);
 }
 
-inline void Serializable::expose(const char* name, unsigned short& value) {
-    using ushort = unsigned short;
+inline void Serializable::expose(const std::string& name, unsigned short& value) {
+    using T = unsigned short;
 
-    const constexpr Serializer<ushort> S   = [](const auto& val) { return std::to_string(val); };
-    const constexpr Deserializer<ushort> D = [](const auto& val) { return static_cast<ushort>(std::stoi(val)); };
+    static detail::Serializer<T> S   = [](const auto& val) { return std::to_string(val); };
+    static detail::Deserializer<T> D = [](const auto& val) { return static_cast<T>(std::stoi(val)); };
     expose("USHORT", name, value, S, D);
 }
 
-inline void Serializable::expose(const char* name, int& value) {
-    const constexpr Serializer<int> S   = [](const auto& val) { return std::to_string(val); };
-    const constexpr Deserializer<int> D = [](const auto& val) { return std::stoi(val); };
+inline void Serializable::expose(const std::string& name, int& value) {
+    static detail::Serializer<int> S   = [](const auto& val) { return std::to_string(val); };
+    static detail::Deserializer<int> D = [](const auto& val) { return std::stoi(val); };
     expose("INT", name, value, S, D);
 }
 
-inline void Serializable::expose(const char* name, unsigned int& value) {
-    using uint = unsigned int;
+inline void Serializable::expose(const std::string& name, unsigned int& value) {
+    using T = unsigned int;
 
-    const constexpr Serializer<uint> S   = [](const auto& val) { return std::to_string(val); };
-    const constexpr Deserializer<uint> D = [](const auto& val) { return static_cast<uint>(std::stoul(val)); };
+    static detail::Serializer<T> S   = [](const auto& val) { return std::to_string(val); };
+    static detail::Deserializer<T> D = [](const auto& val) { return static_cast<T>(std::stoul(val)); };
     expose("UINT", name, value, S, D);
 }
 
-inline void Serializable::expose(const char* name, long& value) {
-    const constexpr Serializer<long> S   = [](const auto& val) { return std::to_string(val); };
-    const constexpr Deserializer<long> D = [](const auto& val) { return std::stol(val); };
+inline void Serializable::expose(const std::string& name, long& value) {
+    static detail::Serializer<long> S   = [](const auto& val) { return std::to_string(val); };
+    static detail::Deserializer<long> D = [](const auto& val) { return std::stol(val); };
     expose("LONG", name, value, S, D);
 }
 
-inline void Serializable::expose(const char* name, unsigned long& value) {
-    const constexpr Serializer<unsigned long> S   = [](const auto& val) { return std::to_string(val); };
-    const constexpr Deserializer<unsigned long> D = [](const auto& val) { return std::stoul(val); };
+inline void Serializable::expose(const std::string& name, unsigned long& value) {
+    static detail::Serializer<unsigned long> S   = [](const auto& val) { return std::to_string(val); };
+    static detail::Deserializer<unsigned long> D = [](const auto& val) { return std::stoul(val); };
     expose("ULONG", name, value, S, D);
 }
 
-inline void Serializable::expose(const char* name, float& value) {
-    const constexpr Serializer<float> S   = [](const auto& val) { return std::to_string(val); };
-    const constexpr Deserializer<float> D = [](const auto& val) { return std::stof(val); };
+inline void Serializable::expose(const std::string& name, float& value) {
+    static detail::Serializer<float> S   = [](const auto& val) { return std::to_string(val); };
+    static detail::Deserializer<float> D = [](const auto& val) { return std::stof(val); };
     expose("FLOAT", name, value, S, D);
 }
 
-inline void Serializable::expose(const char* name, double& value) {
-    const constexpr Serializer<double> S   = [](const auto& val) { return std::to_string(val); };
-    const constexpr Deserializer<double> D = [](const auto& val) { return std::stod(val); };
+inline void Serializable::expose(const std::string& name, double& value) {
+    static detail::Serializer<double> S   = [](const auto& val) { return std::to_string(val); };
+    static detail::Deserializer<double> D = [](const auto& val) { return std::stod(val); };
     expose("DOUBLE", name, value, S, D);
 }
 
-inline void Serializable::expose(const char* name, std::string& value) {
-    const constexpr Serializer<std::string> S = [](const auto& val) {
-        static const std::regex matchQuote("\"");
-        static const std::regex matchNewline("\n");
-
-        std::string safe = std::regex_replace(val, matchQuote, "&quot;");
-        safe             = std::regex_replace(safe, matchNewline, "&newline;");
-        return "\"" + safe + "\"";
+inline void Serializable::expose(const std::string& name, std::string& value) {
+    static detail::Serializer<std::string> S = [](const auto& val) {
+        std::string safe = detail::replaceAll(val, "\"", "&quot;");
+        safe             = detail::replaceAll(safe, "\n", "&newline;");
+        return safe.insert(0, "\"").append("\"");
     };
 
-    const constexpr Serializer<std::string> D = [](const auto& val) {
-        static const std::regex matchNewline("&newline;");
-        static const std::regex matchQuote("&quot;");
-
-        std::string unsafe = std::regex_replace(val.substr(1, val.size() - 2), std::regex(matchNewline), "\n");
-        unsafe             = std::regex_replace(unsafe, std::regex(matchQuote), "\"");
+    static detail::Serializer<std::string> D = [](const auto& val) {
+        std::string unsafe = detail::replaceAll(val.substr(1, val.size() - 2), "&newline;", "\n");
+        unsafe             = detail::replaceAll(unsafe, "&quot;", "\"");
         return unsafe;
     };
 
     expose("STRING", name, value, S, D);
 }
 
-template <Enum E> inline void Serializable::expose(const char* name, E& value) {
-    const constexpr Serializer<E> S   = [](const auto& val) { return std::to_string(static_cast<int>(val)); };
-    const constexpr Deserializer<E> D = [](const auto& val) { return static_cast<E>(std::stoi(val)); };
+template <detail::Enum E> inline void Serializable::expose(const std::string& name, E& value) {
+    static detail::Serializer<E> S   = [](const auto& val) { return std::to_string(static_cast<int>(val)); };
+    static detail::Deserializer<E> D = [](const auto& val) { return static_cast<E>(std::stoi(val)); };
     expose("ENUM", name, value, S, D);
 }
 
-inline void Serializable::expose(const char* name, Serializable& value) {
+inline void Serializable::expose(const std::string& name, Serializable& value) {
     // Only expose if result is OK
     if(result != Result::OK) return;
 
@@ -620,7 +790,7 @@ inline void Serializable::expose(const char* name, Serializable& value) {
     value.pointerTypes = pointerTypes;
 
     // Get values address
-    const auto address = std::bit_cast<Address>(&value);
+    const auto address = std::bit_cast<detail::Address>(&value);
 
     switch(action) {
     case Action::IDLE: break;
@@ -634,12 +804,12 @@ inline void Serializable::expose(const char* name, Serializable& value) {
     }
 
     case Action::DESERIALIZE: {
-        std::optional<Serialized> child = serialized.getChild(name);
+        std::optional<detail::Serialized> child = serialized.getChild(name);
         if(!child) result = Result::INTEGRITY;
         else if(!child->isObject(value.classID())) result = Result::TYPECHECK;
         else {
             (*addressTable)[child->getAddress()] = address;
-            value.serialized                     = child.value();
+            value.serialized                     = *child;
             value.exposed();
         }
         break;
@@ -647,35 +817,43 @@ inline void Serializable::expose(const char* name, Serializable& value) {
     }
 
     // Take state from value
+    result = value.result;
+
+    // Reset state of value
     value.action       = Action::IDLE;
-    result             = value.result;
+    result             = Result::OK;
     value.addressTable = nullptr;
     value.pointerTable = nullptr;
     value.pointerTypes = nullptr;
 }
 
-template <SerializableChild S> inline void Serializable::expose(const char* name, S*& value) {
+template <detail::SerializableChild S> inline void Serializable::expose(const std::string& name, S*& value) {
     // Only expose if result is OK
     if(result != Result::OK) return;
 
+    // Can't expose nullptr
+    if(value == nullptr) {
+        result = Result::POINTER;
+        return;
+    }
+
     // Get values address
-    const auto address = std::bit_cast<Address>(&value);
+    const auto address = std::bit_cast<detail::Address>(&value);
 
     switch(action) {
     case Action::IDLE: break;
 
     case Action::SERIALIZE: {
-        Serialized pointer;
-        pointer.setPointer(name, std::bit_cast<Address>(value), (value == nullptr ? 0 : value->classID()));
+        detail::Serialized pointer;
+        pointer.setPointer(name, std::bit_cast<detail::Address>(value), (value == nullptr ? 0 : value->classID()));
         serialized.addChild(pointer);
         break;
     }
 
     case Action::DESERIALIZE: {
-        std::optional<Serialized> pointer = serialized.getChild(name);
+        std::optional<detail::Serialized> pointer = serialized.getChild(name);
         if(!pointer) result = Result::INTEGRITY;
-        else if(!pointer->isPointer() || (value != nullptr && !pointer->isPointer(value->classID())))
-            result = Result::TYPECHECK;
+        else if(!pointer->isPointer(value->classID())) result = Result::TYPECHECK;
         else {
             (*pointerTable)[address] = pointer->getAddress();
             (*pointerTypes)[address] = value == nullptr ? 0 : value->classID();
@@ -686,8 +864,8 @@ template <SerializableChild S> inline void Serializable::expose(const char* name
 }
 
 template <typename T>
-inline void Serializable::expose(const char* type, const char* name, T& value, Serializer<T> serializer,
-                                 Deserializer<T> deserializer) {
+inline void Serializable::expose(const std::string& type, const std::string& name, T& value,
+                                 detail::Serializer<T> serializer, detail::Deserializer<T> deserializer) {
     // Only expose if result is OK
     if(result != Result::OK) return;
 
@@ -695,14 +873,14 @@ inline void Serializable::expose(const char* type, const char* name, T& value, S
     case Action::IDLE: break;
 
     case Action::SERIALIZE: {
-        Serialized primitive;
+        detail::Serialized primitive;
         primitive.setPrimitive(type, name, serializer(value));
         serialized.addChild(primitive);
         break;
     }
 
     case Action::DESERIALIZE: {
-        std::optional<Serialized> primitive = serialized.getChild(name);
+        std::optional<detail::Serialized> primitive = serialized.getChild(name);
         if(!primitive) result = Result::INTEGRITY;
         else if(!primitive->checkType(type, serializer, deserializer)) result = Result::TYPECHECK;
         else value = primitive->getValue(deserializer);
