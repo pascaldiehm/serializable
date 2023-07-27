@@ -92,7 +92,7 @@ For every variable you want to serialize, you have to call `void expose(const st
 
 For `name` you can generally pass any string you want.
 It's a good idea to take the name of the variable, to avoid duplication and confusion.
-It's a bad idea to use strings containing `{`, `}`, `\n` and `=`, as this might confuse the parser.
+It's a bad idea to use strings containing `\n` and `=`, as this will confuse the parser.
 Every other name _should_ be fine though.
 
 For `value` you usually simply have to pass the name of the variable - C++ will automatically pass it as a reference (as requested by the `expose` function).
@@ -216,7 +216,7 @@ primitive_floating = ('FLOAT' | 'DOUBLE'), ' ', name, ' = ', ['-'], unum, '.', u
 unum = digit, {digit};
 
 digit = <any digit>;
-safe_char = <any character except curly brackets, newline and equals>;
+safe_char = <any character except newline and equals>;
 string_char = <any character except quotes and newlines>;
 ```
 

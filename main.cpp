@@ -566,7 +566,7 @@ void testErrors() {
     assertEqual(Errors::Result::OK, errors.deserialize(serial.second), "error (name with space)");
 
     // Name with other funny characters
-    errors.name = "name with other funny characters: !@#$%^&*()_+|:\"<>?`-[]\\;',./";
+    errors.name = "name with other funny characters: !@#$%^&*(){}_+|:\"<>?`-[]\\;',./";
     serial      = errors.serialize();
     assertEqual(Errors::Result::OK, serial.first, "error (name with other funny characters)");
     assertEqual("OBJECT<2> root = 1 {\n\tSTRING " + errors.name + " = \"value\"\n}", serial.second,
