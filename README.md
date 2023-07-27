@@ -96,7 +96,7 @@ It's a bad idea to use strings containing `\n` and `=`, as this will confuse the
 Every other name _should_ be fine though.
 
 For `value` you usually simply have to pass the name of the variable - C++ will automatically pass it as a reference (as requested by the `expose` function).
-The type of `value` should be a primitive type (`bool`, `[unsigned] char`, `[unsigned] short`, `[unsigned] int`, `[unsigned] long`, `double`, `float`), `std::string`, an enum, some class extending `serializable::Serializable`, a pointer to such a class or a container of anything serializable.
+The type of `value` should be a primitive type (`bool`, `[unsigned] char`, `[unsigned] short`, `[unsigned] int`, `[unsigned] long`, `double`, `float`), `std::string`, an enum, some class extending `serializable::Serializable`, a pointer to such a class or a container (`std::array`, `std::list`, `std::vector` or `std::deque`) of anything serializable.
 
 The given functions will now serialize/deserialize any variable exposed in this way.
 Note that it is also possible to apply some pre-/postprocessing to your variables inside of your `exposed` function.
@@ -144,6 +144,7 @@ You should not use 0 as this is the default for classes that don't implement thi
       - `public: virtual std::string get() const` A function returning the serialized data of this object.
       - `public: virtual bool set(const std::string&)` A function setting the object from serialized data returning the success of the operation.
       - `public: virtual std::string getName() const` A function returning the name of the serialize field.
+      - `public: virtual std::unique_ptr<Serial> clone() const` A function returning a clone of this object.
       - `public: SerialPrimitive* asPrimitive()` A function returning `this` as a `SerialPrimitive` pointer.
       - `public: SerialObject* asObject()` A function returning `this` as a `SerialObject` pointer.
       - `public: SerialPointer* asPointer()` A function returning `this` as a `SerialPointer` pointer.
@@ -153,6 +154,7 @@ You should not use 0 as this is the default for classes that don't implement thi
       - `public: std::string get() const override` An implementation of `Serial::get`.
       - `public: void set(const std::string&) override` An implementation `Serial::set`.
       - `public: std::string getName() const override` An implementation `Serial::getName`.
+      - `public: std::unique_ptr<Serial> clone() const override` An implementation `Serial::clone`.
       - `public: std::string getType() const` Returns the serialized type.
       - `public: std::string getValue() const` Returns the serialized value.
     - `class SerialObject` A class representing a serialized subclass.
@@ -161,8 +163,10 @@ You should not use 0 as this is the default for classes that don't implement thi
       - `public: std::string get() const override` An implementation of `Serial::get`.
       - `public: void set(const std::string&) override` An implementation `Serial::set`.
       - `public: std::string getName() const override` An implementation `Serial::getName`.
-      - `public: void append(const std::shared_ptr<Serial>&)` Appends a shared pointer to a `Serial` object to this object.
-      - `public: std::optional<std::shared_ptr<Serial>> getChild(const std::string&)` Returns the child with the specified name (if it exists).
+      - `public: std::unique_ptr<Serial> clone() const override` An implementation `Serial::clone`.
+      - `public: void emplace(unsigned int, std::string, Address, Address)` Overwrites this objects data.
+      - `public: void append(std::unique_ptr<Serial>)` Appends a shared pointer to a `Serial` object to this object.
+      - `public: std::optional<Serial*> getChild(const std::string&)` Returns the child with the specified name (if it exists).
       - `public: unsigned int getClass()` Returns the class id of the serialized object.
       - `public: void virtualizeAddresses(std::unordered_map<Address, Address>&)` Generates a virtual address and registers it in the address map. Also passes the invocation to all children `SerialObject`s.
       - `public: void restoreAddresses(std::unordered_map<Address, Address>&)` Registers its real address under its virtual address. Also passes the invocation to all children `SerialObject`s.
@@ -175,11 +179,12 @@ You should not use 0 as this is the default for classes that don't implement thi
       - `public: std::string get() const override` An implementation of `Serial::get`.
       - `public: void set(const std::string&) override` An implementation `Serial::set`.
       - `public: std::string getName() const override` An implementation `Serial::getName`.
+      - `public: std::unique_ptr<Serial> clone() const override` An implementation `Serial::clone`.
       - `public: unsigned int getClass()` Returns the class id of the serialized pointer.
-      - `public: bool virtualizePointers(const std::unordered_map<Address, Address>&)` Replaces the real address with the corresponding virtual address. Returns `false` if the real value is not mapped.
-      - `public: bool restorePointers(const std::unordered_map<Address, Address>&)` Replaces the virtual address with the corresponding real address. Returns `false` if the virtual value is not mapped. Also updates and validates the original pointer.
+      - `public: bool virtualizePointer(const std::unordered_map<Address, Address>&)` Replaces the real address with the corresponding virtual address. Returns `false` if the real value is not mapped.
+      - `public: bool restorePointer(const std::unordered_map<Address, Address>&)` Replaces the virtual address with the corresponding real address. Returns `false` if the virtual value is not mapped. Also updates and validates the original pointer.
     - `namespace string` A namespace grouping function working with strings.
-      - `std::string makeString(const std::initializer_list<std::string>&)` Concatenates multiple strings into one.
+      - `template <typename... Args> requires(std::convertible_to<Args, std::string> && ...) std::string makeString(const Args&...)` Concatenates multiple strings into one.
       - `std::string substring(const std::string&, std::size_t, std::size_t)` Substring with with start and end.
       - `std::string replaceAll(const std::string&, const std::string&, const std::string&)` Replaces every occurrence of the second argument in the first one with the third one.
       - `std::string connect(const std::vector<std::string>&, char)` Connects multiple strings into one.
@@ -198,6 +203,7 @@ You should not use 0 as this is the default for classes that don't implement thi
     - `concept SerializableContainer` A concept for a container that can be serialized and deserialized.
     - `template <SerializableContainer S> class SerialContainer` A wrapper for a serializable container.
       - `public: SerialContainer(S&)` Construct wrapper from container.
+      - `public: void exposed()` An implementation of `Serializable::exposed`.
 
 ### Save file syntax
 
