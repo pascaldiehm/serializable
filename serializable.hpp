@@ -639,7 +639,7 @@ template <Enum E> inline std::optional<E> deserializePrimitive(const std::string
 inline std::optional<std::array<std::string, 3>> parsePrimitive(const std::string& data) {
     // Find fixed points
     const std::size_t space  = data.find(' ');
-    const std::size_t equals = data.find('=');
+    const std::size_t equals = data.find('=', space + 1);
 
     // Check fixed points
     if(space == std::string::npos) return std::nullopt;
@@ -650,6 +650,10 @@ inline std::optional<std::array<std::string, 3>> parsePrimitive(const std::strin
     std::string name  = substring(data, space + 1, equals - 1);
     std::string value = substring(data, equals + 2, data.size());
 
+    // Validate sections
+    if(type.empty()) return std::nullopt;
+    if(value.empty()) return std::nullopt;
+
     return std::array{ type, name, value };
 }
 
@@ -657,8 +661,8 @@ inline std::optional<std::array<std::string, 3>> parsePrimitive(const std::strin
 inline std::optional<std::array<std::string, 4>> parseObject(const std::string& data) {
     // Find fixed points
     const std::size_t space   = data.find(' ');
-    const std::size_t equals  = data.find('=');
-    const std::size_t opening = data.find('{');
+    const std::size_t equals  = data.find('=', space + 1);
+    const std::size_t opening = data.find('{', equals + 1);
 
     // Check fixed points
     if(space == std::string::npos) return std::nullopt;
@@ -671,6 +675,10 @@ inline std::optional<std::array<std::string, 4>> parseObject(const std::string& 
     std::string address  = substring(data, equals + 2, opening - 1);
     std::string children = substring(data, opening + 2, data.size() - 2);
 
+    // Validate sections
+    if(classID.empty()) return std::nullopt;
+    if(address.empty()) return std::nullopt;
+
     return std::array{ classID, name, address, children };
 }
 
@@ -678,7 +686,7 @@ inline std::optional<std::array<std::string, 4>> parseObject(const std::string& 
 inline std::optional<std::array<std::string, 3>> parsePointer(const std::string& data) {
     // Find fixed points
     const std::size_t space  = data.find(' ');
-    const std::size_t equals = data.find('=');
+    const std::size_t equals = data.find('=', space + 1);
 
     // Check fixed points
     if(space == std::string::npos) return std::nullopt;
@@ -688,6 +696,10 @@ inline std::optional<std::array<std::string, 3>> parsePointer(const std::string&
     std::string classID = substring(data, 4, space - 1);
     std::string name    = substring(data, space + 1, equals - 1);
     std::string address = substring(data, equals + 2, data.size());
+
+    // Validate sections
+    if(classID.empty()) return std::nullopt;
+    if(address.empty()) return std::nullopt;
 
     return std::array{ classID, name, address };
 }
