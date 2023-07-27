@@ -7,6 +7,7 @@
         "NOLINTNEXTLINE",
         "nullptr",
         "Quickstart",
+        "struct",
         "TYPECHECK",
         "UCHAR",
         "ULONG",

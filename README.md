@@ -128,6 +128,7 @@ You should not use 0 as this is the default for classes that don't implement thi
     - `protected: template <SerializablePrimitive S> void expose(const std::string&, S&)` Expose a primitive value.
     - `protected: void expose(const std::string&, Serializable& value)` Expose a serializable class.
     - `protected: template <SerializableObject S> void expose(const std::string&, S*&)` Expose a pointer to a serializable class.
+    - `protected: template <SerializableContainer S> void expose(const std::string&, S&)` Expose a container.
   - `namespace detail` A namespace containing helper functions, structures and other implementation details.
     - `using Address` A type alias for addresses.
     - `concept SerializableObject` A concept for any class extending the `Serializable` base class.
@@ -192,6 +193,11 @@ You should not use 0 as this is the default for classes that don't implement thi
       - `std::optional<std::array<std::string, 4>> parseObject(const std::string&)`
       - `std::optional<std::array<std::string, 3>> parsePointer(const std::string&)`
     - `concept SerializablePrimitive` A concept for a type that can be serialized and deserialized.
+    - `struct SerializableContainerHelper` A concept helper for `SerializableContainer`.
+    - `concept SerializableContainerType` A concept for a type that can be stored in a `SerializableContainer`.
+    - `concept SerializableContainer` A concept for a container that can be serialized and deserialized.
+    - `template <SerializableContainer S> class SerialContainer` A wrapper for a serializable container.
+      - `public: SerialContainer(S&)` Construct wrapper from container.
 
 ### Save file syntax
 

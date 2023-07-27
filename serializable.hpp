@@ -169,6 +169,21 @@ template <typename T> concept SerializablePrimitive = requires(T t) {
     { string::serializePrimitive(t) } -> std::same_as<std::string>;
     { string::deserializePrimitive<T>("") } -> std::same_as<std::optional<T>>;
 };
+
+template <typename T> struct SerializableContainerHelper : std::false_type {};
+
+template <typename T> concept SerializableContainerType = SerializablePrimitive<T> || SerializableObject<T> ||
+                                                          SerializableObject<std::remove_pointer_t<T>> ||
+                                                          SerializableContainerHelper<T>::value;
+
+template <SerializableContainerType T> struct SerializableContainerHelper<std::vector<T>> : std::true_type {};
+
+template <SerializableContainerType T, std::size_t N>
+struct SerializableContainerHelper<std::array<T, N>> : std::true_type {};
+
+template <typename T> concept SerializableContainer = SerializableContainerHelper<T>::value;
+
+template <SerializableContainer S> class SerialContainer;
 } // namespace detail
 
 class Serializable {
@@ -196,6 +211,7 @@ class Serializable {
     template <detail::SerializablePrimitive S> void expose(const std::string& name, S& value);
     void expose(const std::string& name, Serializable& value);
     template <detail::SerializableObject S> void expose(const std::string& name, S*& value);
+    template <detail::SerializableContainer S> void expose(const std::string& name, S& value);
 
   private:
     enum class Mode { SERIALIZING, DESERIALIZING };
@@ -204,6 +220,30 @@ class Serializable {
     Result result{};
     detail::SerialObject serial;
 };
+
+namespace detail {
+template <SerializableContainer S> class SerialContainer : public Serializable {
+  public:
+    explicit SerialContainer(S& value);
+
+    void exposed() override {
+        // Expose size
+        std::size_t size = value->size();
+        expose("size", size);
+
+        // Resize container if necessary and possible
+        if constexpr(requires { value->resize(size); }) {
+            if(size != value->size()) value->resize(size);
+        }
+
+        // Expose elements
+        for(std::size_t i = 0; i < size; ++i) expose(string::serializePrimitive(i), (*value)[i]);
+    }
+
+  private:
+    S* value;
+};
+} // namespace detail
 } // namespace serializable
 
 namespace serializable {
@@ -923,4 +963,19 @@ template <detail::SerializableObject S> void Serializable::expose(const std::str
         serialPointer->setTarget(address);
     }
 }
+
+template <detail::SerializableContainer S> void Serializable::expose(const std::string& name, S& value) {
+    // Abort if previous error was detected
+    if(result != Result::OK) return;
+
+    // Create serial container
+    detail::SerialContainer<S> serialContainer(value);
+
+    // Expose container
+    expose(name, serialContainer);
+}
+
+namespace detail {
+template <SerializableContainer S> SerialContainer<S>::SerialContainer(S& value) : value(&value) {}
+} // namespace detail
 } // namespace serializable
