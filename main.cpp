@@ -61,7 +61,7 @@ void testStringManipulation() {
     assertEqual("ABC-DEF-XYZ", str::connect({ "ABC", "DEF", "XYZ" }, '-'), "str::connect (with separator)");
 
     // Test str::split
-    assertEqual(std::vector<std::string>{}, str::split(""), "str::split (empty)");
+    assertEqual(std::vector<std::string>{ "" }, str::split(""), "str::split (empty)");
     assertEqual(std::vector<std::string>{ "", "" }, str::split("\n"), "str::split (empty multiline)");
     assertEqual(std::vector<std::string>{ "ABC" }, str::split("ABC"), "str::split (single)");
     assertEqual(std::vector<std::string>{ "ABC", "DEF" }, str::split("ABC\nDEF"), "str::split (multiple)");
@@ -547,6 +547,14 @@ void testErrors() {
     // Wrong value type
     res = errors.deserialize("OBJECT<2> root = 1 {\n\tSTRING name = 123\n}");
     assertEqual(Errors::Result::TYPECHECK, res, "error (wrong value type)");
+
+    // Newline at end
+    res = errors.deserialize("OBJECT<2> root = 1 {\n\tSTRING name = \"value\"\n}\n");
+    assertEqual(Errors::Result::OK, res, "error (newline at end)");
+
+    // Newline in middle
+    res = errors.deserialize("OBJECT<2> root = 1 {\n\tSTRING name = \"value\"\n\t\n}");
+    assertEqual(Errors::Result::OK, res, "error (newline in middle)");
 
     // Name with space
     errors.name  = "name with space";

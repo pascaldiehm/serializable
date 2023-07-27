@@ -278,6 +278,7 @@ inline bool SerialObject::set(const std::string& data) {
     // Parse children
     const std::vector<std::string> children = string::split(string::unindent(parsed->at(3)));
     for(const auto& child : children) {
+        if(child.empty()) continue;
         if(child.starts_with("OBJECT")) {
             auto object = std::make_shared<SerialObject>();
             if(!object->set(child)) return false;
@@ -492,7 +493,7 @@ inline std::string connect(const std::vector<std::string>& lines, char delimiter
 
 inline std::vector<std::string> split(const std::string& data, char delimiter) {
     // Base case (empty data)
-    if(data.empty()) return {};
+    if(data.empty()) return { "" };
 
     // Create vector
     std::vector<std::string> lines;
