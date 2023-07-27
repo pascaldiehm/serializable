@@ -126,10 +126,10 @@ inline std::string Serialized::serialize() const {
         return data.append("}");
     }
 
-    // Construct primitive value
+    // Construct pointer value
     if(type != "PTR") return createString({type, " ", name, " = ", value});
 
-    // Construct pointer value
+    // Construct primitive value
     return createString({type, " ", name, " = ", std::to_string(address), " (", std::to_string(classId), ")"});
 }
 
@@ -833,7 +833,7 @@ inline void Serializable::expose(const std::string& name, Serializable& value) {
 
     // Reset state of value
     value.action       = Action::IDLE;
-    result             = Result::OK;
+    value.result       = Result::OK;
     value.addressTable = nullptr;
     value.pointerTable = nullptr;
     value.pointerTypes = nullptr;
