@@ -4,10 +4,12 @@
 #include <array>
 #include <bit>
 #include <climits>
+#include <deque>
 #include <exception>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <list>
 #include <memory>
 #include <optional>
 #include <sstream>
@@ -186,6 +188,10 @@ template <SerializableContainerType T> struct SerializableContainerHelper<std::v
 
 template <SerializableContainerType T, std::size_t N>
 struct SerializableContainerHelper<std::array<T, N>> : std::true_type {};
+
+template <SerializableContainerType T> struct SerializableContainerHelper<std::list<T>> : std::true_type {};
+
+template <SerializableContainerType T> struct SerializableContainerHelper<std::deque<T>> : std::true_type {};
 
 template <typename T> concept SerializableContainer = SerializableContainerHelper<T>::value;
 
@@ -1011,7 +1017,8 @@ template <SerializableContainer S> void SerialContainer<S>::exposed() {
     }
 
     // Expose elements
-    for(std::size_t i = 0; i < size; ++i) expose(string::serializePrimitive(i), (*value)[i]);
+    std::size_t index = 0;
+    for(auto& element : *value) expose(string::serializePrimitive(index++), element);
 }
 } // namespace detail
 } // namespace serializable

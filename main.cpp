@@ -4,6 +4,7 @@
 #include <chrono>
 #include <climits>
 #include <iostream>
+#include <list>
 #include <memory>
 #include <optional>
 #include <string>
@@ -411,13 +412,16 @@ struct AllTypes : public serializable::Serializable {
     AllTypes* p = nullptr;
     std::array<int, 2> arr{};
     std::vector<int> vec{};
+    std::list<int> list{};
+    std::deque<int> deque{};
 
     AllTypes() : p(this){};
 
     AllTypes(bool b, char c, unsigned char uc, short s, unsigned short us, int i, unsigned int ui, long l,
-             unsigned long ul, float f, double d, std::string str, Enum e, std::array<int, 2> arr, std::vector<int> vec)
+             unsigned long ul, float f, double d, std::string str, Enum e, std::array<int, 2> arr, std::vector<int> vec,
+             std::list<int> list, std::deque<int> deque)
         : b(b), c(c), uc(uc), s(s), us(us), i(i), ui(ui), l(l), ul(ul), f(f), d(d), str(std::move(str)), e(e), p(this),
-          arr(arr), vec(std::move(vec)) {}
+          arr(arr), vec(std::move(vec)), list(std::move(list)), deque(std::move(deque)) {}
 
     void exposed() override {
         expose("b", b);
@@ -436,6 +440,8 @@ struct AllTypes : public serializable::Serializable {
         expose("p", p);
         expose("arr", arr);
         expose("vec", vec);
+        expose("list", list);
+        expose("deque", deque);
     }
 
     [[nodiscard]] unsigned int classID() const override { return 1; }
@@ -443,7 +449,7 @@ struct AllTypes : public serializable::Serializable {
 
 void testAllTypes() {
     AllTypes source(true, 'a', 'b', 1, 2, 3, 4, 5, 6, 7.0F, 8.0, "Hello World", AllTypes::Enum::XYZ, { 9, 10 },
-                    { 11, 12 });
+                    { 11, 12 }, { 13, 14 }, { 15, 16 });
     const auto serial = source.serialize();
     assertEqual(AllTypes::Result::OK, serial.first, "AllTypes::serialize() (result)");
 
@@ -465,6 +471,8 @@ void testAllTypes() {
     assertEqual(&target, target.p, "AllTypes::deserialize() (p)");
     assertEqual(source.arr, target.arr, "AllTypes::deserialize() (arr)");
     assertEqual(source.vec, target.vec, "AllTypes::deserialize() (vec)");
+    assertEqual(source.list, target.list, "AllTypes::deserialize() (list)");
+    assertEqual(source.deque, target.deque, "AllTypes::deserialize() (deque)");
 
     // Serialize nullptr
     source.p = nullptr;
