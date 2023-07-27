@@ -371,8 +371,16 @@ inline std::optional<Serial*> SerialObject::getChild(const std::string& name) co
 inline unsigned int SerialObject::getClass() const { return classID; }
 
 inline void SerialObject::virtualizeAddresses(std::unordered_map<Address, Address>& addressMap) {
-    // Generate own virtual address
-    virtualAddress = addressMap.size() + 1;
+    // Reset own virtual address
+    virtualAddress = 0;
+
+    // Don't virtualize objects without class id
+    if(classID == 0) return;
+
+    // Generate own virtual address (max in map + 1)
+    for(const auto& [_, addr] : addressMap)
+        if(addr >= virtualAddress) virtualAddress = addr;
+    virtualAddress++;
 
     // Register in address map
     addressMap[realAddress] = virtualAddress;
@@ -385,6 +393,9 @@ inline void SerialObject::virtualizeAddresses(std::unordered_map<Address, Addres
 }
 
 inline void SerialObject::restoreAddresses(std::unordered_map<Address, Address>& addressMap) const {
+    // Don't restore objects without class id
+    if(classID == 0) return;
+
     // Register real address under virtual address
     addressMap[virtualAddress] = realAddress;
 
@@ -905,11 +916,9 @@ inline void Serializable::expose(const std::string& name, Serializable& value) {
         // Serialize object
         value.mode   = Mode::SERIALIZING;
         value.result = Result::OK;
-        std::unique_ptr<detail::Serial> serialValue =
+        value.serial =
           std::make_unique<detail::SerialObject>(value.classID(), name, std::bit_cast<detail::Address>(&value), 0);
-        value.serial = std::move(serialValue);
         value.exposed();
-        serialValue = std::move(value.serial);
 
         // Take result
         if(value.result != result) {
@@ -918,7 +927,7 @@ inline void Serializable::expose(const std::string& name, Serializable& value) {
         }
 
         // Append serial object to root
-        serial->asObject()->append(std::move(serialValue));
+        serial->asObject()->append(std::move(value.serial));
     } else {
         // Find serial value in root object
         const auto serialValue = serial->asObject()->getChild(name);

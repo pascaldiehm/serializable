@@ -385,7 +385,7 @@ void testBasic() {
 
     const auto serial = source.serialize();
     assertEqual(Basic::Result::OK, serial.first, "Basic::serialize() (result)");
-    assertEqual("OBJECT<0> root = 1 {\n\tINT value = 42\n}", serial.second, "Basic::serialize() (data)");
+    assertEqual("OBJECT<0> root = 0 {\n\tINT value = 42\n}", serial.second, "Basic::serialize() (data)");
 
     Basic target;
     assertEqual(Basic::Result::OK, target.deserialize(serial.second), "Basic::deserialize() (result)");
