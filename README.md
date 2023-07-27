@@ -96,7 +96,7 @@ It's a bad idea to use strings containing `\n` and `=`, as this will confuse the
 Every other name _should_ be fine though.
 
 For `value` you usually simply have to pass the name of the variable - C++ will automatically pass it as a reference (as requested by the `expose` function).
-The type of `value` should be a primitive type (`bool`, `[unsigned] char`, `[unsigned] short`, `[unsigned] int`, `[unsigned] long`, `double`, `float`), `std::string`, an enum, some class extending `serializable::Serializable` or a pointer to such a class.
+The type of `value` should be a primitive type (`bool`, `[unsigned] char`, `[unsigned] short`, `[unsigned] int`, `[unsigned] long`, `double`, `float`), `std::string`, an enum, some class extending `serializable::Serializable`, a pointer to such a class or a container of anything serializable.
 
 The given functions will now serialize/deserialize any variable exposed in this way.
 Note that it is also possible to apply some pre-/postprocessing to your variables inside of your `exposed` function.
